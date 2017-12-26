@@ -4,6 +4,7 @@ mod result;
 mod ptr;
 mod lexer;
 mod ast;
+mod parser;
 
 use lexer::Lexer;
 

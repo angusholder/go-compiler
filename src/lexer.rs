@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::fmt::{ self, Display };
 
+use ast::Ident;
 use chars::PeekableCharIndices;
 use result::{ CompileResult, Span };
 
@@ -154,7 +155,7 @@ pub enum TokenKind {
     OrEq,           // |=
     LogOr,          // ||
 
-    Ident(Span),
+    Ident(Ident),
     Integer(i64),
     StrLit(String),
 }
@@ -237,7 +238,7 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
             OrEq => "|=",
             LogOr => "||",
 
-            Ident(span) => return f.write_str(span.as_str(self.src)),
+            Ident(ref ident) => return f.write_str(ident),
             Integer(i) => return write!(f, "{}", i),
             StrLit(ref s) => return f.write_str(s),
         };
@@ -288,8 +289,8 @@ impl<'src> Lexer<'src> {
         })
     }
 
-    pub fn match_token(&mut self, token_kind: &TokenKind) -> CompileResult<bool> {
-        Ok(if self.peek()?.map_or(false, |t| t.kind == *token_kind) {
+    pub fn match_token(&mut self, token_kind: TokenKind) -> CompileResult<bool> {
+        Ok(if self.peek()?.map_or(false, |t| t.kind == token_kind) {
             self.peeked = None;
             true
         } else {
@@ -297,11 +298,50 @@ impl<'src> Lexer<'src> {
         })
     }
 
+    pub fn match_ident(&mut self) -> CompileResult<Option<Ident>> {
+        self.peek()?;
+        match self.peeked.take().unwrap() {
+            Some(Token { kind: TokenKind::Ident(ident) }) => Ok(Some(ident)),
+            other => {
+                self.peeked = Some(other);
+                Ok(None)
+            }
+        }
+    }
+
     pub fn expect_token(&mut self, token_kind: TokenKind) -> CompileResult<()> {
-        if self.match_token(&token_kind)? {
+        if self.match_token(token_kind.clone())? {
             Ok(())
         } else {
-            err!(token_kind, "expected token {:#?}, got {:#?}", token_kind, self.peeked.as_ref().unwrap())
+            let peeked = self.peeked.as_ref().unwrap();
+            err!(peeked, "expected token {:#?}, got {:#?}", token_kind, peeked)
+        }
+    }
+
+    pub fn expect_keyword(&mut self, keyword: Keyword) -> CompileResult<()> {
+        if self.match_keyword(keyword)? {
+            Ok(())
+        } else {
+            let peeked = self.peeked.as_ref().unwrap();
+            err!(peeked, "expected keyword {:#?}, got {:#?}", keyword, peeked)
+        }
+    }
+
+    pub fn expect_ident(&mut self) -> CompileResult<Ident> {
+        let next = self.next()?;
+        if let Some(Token { kind: TokenKind::Ident(ident), ..}) = next {
+            Ok(ident)
+        } else {
+            err!(next, "expected identifier, got {:#?}", next.map(|t| t.kind))
+        }
+    }
+
+    pub fn expect_string_lit(&mut self) -> CompileResult<String> {
+        let next = self.next()?;
+        if let Some(Token { kind: TokenKind::StrLit(string), ..}) = next {
+            Ok(string)
+        } else {
+            err!(next, "expected string literal, got {:#?}", next.map(|t| t.kind))
         }
     }
 
@@ -518,7 +558,7 @@ impl<'src> Lexer<'src> {
                 if let Ok(keyword) = self::Keyword::from_str(ident) {
                     Keyword(keyword)
                 } else {
-                    Ident(span)
+                    Ident(ident.to_string().into())
                 }
             }
             _ if is_number_head(ch) => {
@@ -570,5 +610,14 @@ impl<'src> Lexer<'src> {
             self.peeked = Some(self.next()?);
         }
         Ok(self.peeked.as_ref().unwrap().as_ref())
+    }
+
+    pub fn peek_match_token(&mut self, token_kind: TokenKind) -> CompileResult<bool> {
+        Ok(self.peek()?.map(|t| &t.kind) == Some(&token_kind))
+    }
+
+    pub fn unget(&mut self, token: Option<Token>) {
+        assert!(self.peeked == None);
+        self.peeked = Some(token);
     }
 }

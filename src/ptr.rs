@@ -1,29 +1,13 @@
 use std::fmt::{ self, Debug };
-use std::ops::Deref;
+use std::iter::IntoIterator;
+use std::ops::{ Deref, DerefMut };
+use std::vec::IntoIter;
 
-pub struct P<T> {
-    inner: Box<T>,
-}
+pub type P<T> = Box<T>;
 
 #[allow(non_snake_case)]
 pub fn P<T>(t: T) -> P<T> {
-    P {
-        inner: Box::new(t)
-    }
-}
-
-impl<T> Deref for P<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T: Debug> Debug for P<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(&self.inner, f)
-    }
+    Box::new(t)
 }
 
 pub struct List<T> {
@@ -46,8 +30,18 @@ impl<T> Deref for List<T> {
     }
 }
 
+impl<T> IntoIterator for List<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_vec().into_iter()
+    }
+}
+
 impl<T: Debug> Debug for List<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(&self.inner[..], f)
     }
 }
+

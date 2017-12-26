@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use ptr::{ P, List };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -119,12 +121,30 @@ pub enum Expr {
 pub type Label = String;
 pub type Block = List<Stmt>;
 
-#[derive(Clone, Debug)]
-pub struct Ident(String);
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Ident {
+    inner: Box<str>,
+}
+
+impl From<String> for Ident {
+    fn from(t: String) -> Self {
+        Ident {
+            inner: t.into_boxed_str()
+        }
+    }
+}
 
 impl Ident {
     pub fn is_blank(&self) -> bool {
-        self.0 == "_"
+        self.inner.as_ref() == "_"
+    }
+}
+
+impl Deref for Ident {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
@@ -136,10 +156,10 @@ pub enum BlockOrIf {
 
 #[derive(Debug)]
 pub struct IfStmt {
-    pre_stmt: Option<P<SimpleStmt>>,
-    cond: P<Expr>,
-    then: Block,
-    els: Option<BlockOrIf>,
+    pub pre_stmt: Option<P<SimpleStmt>>,
+    pub cond: P<Expr>,
+    pub then: Block,
+    pub els: Option<BlockOrIf>,
 }
 
 #[derive(Debug)]
@@ -185,8 +205,8 @@ pub enum SimpleStmt {
 
 #[derive(Debug)]
 pub struct ConstSpec {
-    left: List<Ident>,
-    right: (Option<P<Type>>, List<Expr>),
+    pub left: List<Ident>,
+    pub right: (Option<P<Type>>, List<Expr>),
 }
 
 #[derive(Debug)]
@@ -203,9 +223,9 @@ pub enum TypeSpec {
 
 #[derive(Debug)]
 pub struct VarSpec {
-    idents: List<Ident>,
-    ty: Option<Type>,
-    exprs: Option<List<Expr>>,
+    pub idents: List<Ident>,
+    pub ty: Option<Type>,
+    pub exprs: Option<List<Expr>>,
 }
 
 #[derive(Debug)]
@@ -243,7 +263,7 @@ pub enum Stmt {
 pub enum Type {
     TypeName {
         ident: Ident,
-        package: Option<String>,
+        package: Option<Ident>,
     },
     TypeLit(TypeLit),
 }
@@ -258,7 +278,7 @@ pub enum ChannelDirection {
 #[derive(Debug)]
 pub enum TypeLit {
     ArrayType {
-        length: usize,
+        length: P<Expr>,
         elem_ty: P<Type>,
     },
     // TODO: StructType
@@ -285,19 +305,19 @@ pub enum ImportAlias {
 
 #[derive(Debug)]
 pub struct ImportSpec {
-    alias: ImportAlias,
-    path: String,
+    pub alias: ImportAlias,
+    pub path: String,
 }
 
 #[derive(Debug)]
 pub struct ParameterDecl {
-    idents: List<Ident>,
-    ellipsis: bool,
-    ty: P<Type>,
+    pub idents: Option<List<Ident>>,
+    pub ellipsis: bool,
+    pub ty: P<Type>,
 }
 
 #[derive(Debug)]
-pub enum Result {
+pub enum FuncResult {
     None,
     One(P<Type>),
     Many(ParameterDecl),
@@ -305,24 +325,24 @@ pub enum Result {
 
 #[derive(Debug)]
 pub struct Signature {
-    params: List<ParameterDecl>,
-    result: Result,
+    pub params: List<ParameterDecl>,
+    pub result: FuncResult,
 }
 
 #[derive(Debug)]
 pub struct FunctionDecl {
-    name: Ident,
-    sig: Signature,
-    body: Option<Block>,
+    pub name: Ident,
+    pub sig: Signature,
+    pub body: Option<Block>,
 }
 
 #[derive(Debug)]
 pub struct MethodDecl {
     // Invariants: must contain a single, non-variadic parameter with type of the form T or *T
-    receiver: ParameterDecl,
-    name: Ident,
-    sig: Signature,
-    body: Option<Block>,
+    pub receiver: ParameterDecl,
+    pub name: Ident,
+    pub sig: Signature,
+    pub body: Option<Block>,
 }
 
 #[derive(Debug)]
@@ -333,11 +353,16 @@ pub enum TopLevelDecl {
 }
 
 #[derive(Debug)]
+pub struct ImportDecl {
+    pub decls: List<ImportSpec>,
+}
+
+#[derive(Debug)]
 pub struct SourceFile {
-    package_clause: Ident,
+    pub package_name: Ident,
 
     // Flattened list of imports
-    imports: List<ImportSpec>,
+    pub imports: List<ImportSpec>,
 
-    decls: List<TopLevelDecl>,
+    pub decls: List<TopLevelDecl>,
 }
