@@ -2,8 +2,8 @@ use std::str::FromStr;
 use std::fmt::{ self, Display };
 
 use ast::Ident;
-use chars::PeekableCharIndices;
-use result::{ CompileResult, Span };
+use utils::chars::PeekableCharIndices;
+use utils::result::{ CompileResult, Span };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Keyword {

@@ -1,7 +1,4 @@
-mod chars;
-#[macro_use]
-mod result;
-mod ptr;
+mod utils;
 mod lexer;
 mod ast;
 mod parser;

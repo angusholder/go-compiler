@@ -1,7 +1,7 @@
 use ast::*;
 use lexer::{ Lexer, Token, TokenKind, Keyword };
-use ptr::{ List, P };
-use result::CompileResult;
+use utils::ptr::{ List, P };
+use utils::result::CompileResult;
 
 struct Parser<'src> {
     lexer: Lexer<'src>,

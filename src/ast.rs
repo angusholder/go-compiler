@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use ptr::{ P, List };
+use utils::ptr::{ P, List };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UnaryOp {
