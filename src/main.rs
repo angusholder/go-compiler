@@ -1,7 +1,9 @@
 mod chars;
 #[macro_use]
 mod result;
+mod ptr;
 mod lexer;
+mod ast;
 
 use lexer::Lexer;
 
