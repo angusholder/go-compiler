@@ -1,6 +1,6 @@
 use std::fmt::{ self, Debug };
 use std::iter::IntoIterator;
-use std::ops::{ Deref, DerefMut };
+use std::ops::{ Deref };
 use std::vec::IntoIter;
 
 pub type P<T> = Box<T>;

@@ -130,8 +130,8 @@ pub enum TokenKind {
     SlashEq,        // /=
     And,            // &
     LogAnd,         // &&
-    Nand,           // &^
-    NandEq,         // &^=
+    AndNot,         // &^
+    AndNotEq,       // &^=
     AndEq,          // &=
     Percent,        // %
     PercentEq,      // %=
@@ -213,8 +213,8 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
             SlashEq => "/=",
             And => "&",
             LogAnd => "&&",
-            Nand => "&^",
-            NandEq => "&^=",
+            AndNot => "&^",
+            AndNotEq => "&^=",
             AndEq => "&=",
             Percent => "%",
             PercentEq => "%=",
@@ -428,9 +428,9 @@ impl<'src> Lexer<'src> {
                     LogAnd
                 } else if self.iter.match_char('^') {
                     if self.iter.match_char('=') {
-                        NandEq
+                        AndNotEq
                     } else {
-                        Nand
+                        AndNot
                     }
                 } else if self.iter.match_char('=') {
                     AndEq
@@ -619,5 +619,9 @@ impl<'src> Lexer<'src> {
     pub fn unget(&mut self, token: Option<Token>) {
         assert!(self.peeked == None);
         self.peeked = Some(token);
+    }
+
+    pub fn offset(&self) -> usize {
+        self.iter.offset()
     }
 }

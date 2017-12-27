@@ -1,7 +1,7 @@
 use ast::*;
 use lexer::{ Lexer, Token, TokenKind, Keyword };
 use utils::ptr::{ List, P };
-use utils::result::CompileResult;
+use utils::result::{ CompileResult, Span };
 
 struct Parser<'src> {
     lexer: Lexer<'src>,
@@ -146,13 +146,8 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_opt_type(&mut self) -> CompileResult<Option<P<Type>>> {
-        let token = if let Some(token) = self.lexer.next()? {
-            token
-        } else {
-            return Ok(None);
-        };
-        let ty: P<Type> = match token.kind {
+    fn parse_opt_type_with_token(&mut self, token: Token) -> CompileResult<Option<P<Type>>> {
+        Ok(Some(match token.kind {
             TokenKind::Ident(package_or_ident) => {
                 if self.lexer.match_token(TokenKind::Dot)? {
                     let ident = self.lexer.expect_ident()?;
@@ -211,8 +206,16 @@ impl<'src> Parser<'src> {
                 self.lexer.unget(Some(Token { kind: other }));
                 return Ok(None);
             }
+        }))
+    }
+
+    fn parse_opt_type(&mut self) -> CompileResult<Option<P<Type>>> {
+        let token = if let Some(token) = self.lexer.next()? {
+            token
+        } else {
+            return Ok(None);
         };
-        Ok(Some(ty))
+        self.parse_opt_type_with_token(token)
     }
 
     fn parse_type(&mut self) -> CompileResult<P<Type>> {
@@ -235,8 +238,264 @@ impl<'src> Parser<'src> {
     fn parse_stmt(&mut self) -> CompileResult<P<Stmt>> {
         unimplemented!()
     }
+}
 
-    fn parse_expr(&mut self) -> CompileResult<P<Expr>> {
-        unimplemented!()
+const BP_PARENS: i32 = 0;      // ( <expr> )
+const BP_COMMA: i32 = 1;       // ,
+const BP_LOGOR: i32 = 10;      // ||
+const BP_LOGAND: i32 = 20;     // &&
+const BP_COMPARISON: i32 = 30; // ==  !=  <  <=  >  >=
+const BP_ADD: i32 = 40;        // +  -  |  ^
+const BP_MUL: i32 = 50;        // *  /  %  <<  >>  &  &^
+const BP_UNARY: i32 = 60;      // + - ! ^ * & <-
+const BP_ACCESSOR: i32 = 70;   // a.b a[b] a[b:c] a.(type) f(a, b) []type(a)
+
+type NullDenotation = fn(p: &mut Parser, token: Token, bp: i32) -> CompileResult<P<Expr>>;
+type LeftDenotation = fn(p: &mut Parser, token: Token, left: P<Expr>, rbp: i32) -> CompileResult<P<Expr>>;
+
+fn null_constant(_p: &mut Parser, token: Token, _bp: i32) -> CompileResult<P<Expr>> {
+    Ok(P(Expr::Literal(match token.kind {
+        TokenKind::Ident(i) => Literal::Ident(i),
+        TokenKind::Integer(n) => Literal::Int(n),
+        TokenKind::StrLit(s) => Literal::String(s),
+        _ => unreachable!(),
+    })))
+}
+
+fn null_paren(p: &mut Parser, _token: Token, bp: i32) -> CompileResult<P<Expr>> {
+    let result = p.parse_expr_until(bp)?;
+    p.lexer.expect_token(TokenKind::RParen)?;
+    Ok(result)
+}
+
+fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<P<Expr>> {
+    let child = p.parse_expr_until(bp)?;
+    let op = match token.kind {
+        TokenKind::Plus => UnaryOp::Plus,
+        TokenKind::Minus => UnaryOp::Minus,
+        TokenKind::LogNot => UnaryOp::LogNot,
+        TokenKind::Caret => UnaryOp::Not,
+        TokenKind::Star => UnaryOp::Deref,
+        TokenKind::And => UnaryOp::AddrOf,
+        TokenKind::SendReceive => UnaryOp::Receive,
+        _ => unreachable!(),
+    };
+
+    Ok(P(Expr::Unary { op, child }))
+}
+
+fn left_index(p: &mut Parser, token: Token, left: P<Expr>, _rbp: i32) -> CompileResult<P<Expr>> {
+    let right = p.parse_opt_expr()?;
+    if p.lexer.match_token(TokenKind::Colon)? {
+        let start = right;
+        let end = p.parse_opt_expr()?;
+        let mut max: Option<P<Expr>> = None;
+        if p.lexer.match_token(TokenKind::Colon)? {
+            max = p.parse_opt_expr()?;
+        }
+        p.lexer.expect_token(TokenKind::RBracket)?;
+        Ok(P(Expr::Slice { left, start, end, max }))
+    } else {
+        if let Some(right) = right {
+            p.lexer.expect_token(TokenKind::RBracket)?;
+            Ok(P(Expr::Index { left, right }))
+        } else {
+            err!(token, "expected expression")
+        }
+    }
+}
+
+fn left_selector(p: &mut Parser, _token: Token, left: P<Expr>, _rbp: i32) -> CompileResult<P<Expr>> {
+    if p.lexer.match_token(TokenKind::LParen)? {
+        // Type Assertion
+        let ty = p.parse_type()?;
+        p.lexer.expect_token(TokenKind::RParen)?;
+        Ok(P(Expr::TypeAssertion { left, ty }))
+    } else {
+        // Field Access
+        let field_name = p.lexer.expect_ident()?;
+        Ok(P(Expr::Selector { left, field_name }))
+    }
+}
+
+fn left_binary_op(p: &mut Parser, token: Token, left: P<Expr>, rbp: i32) -> CompileResult<P<Expr>> {
+    let op = match token.kind {
+        TokenKind::Plus => BinaryOp::Add,
+        TokenKind::Minus => BinaryOp::Sub,
+        TokenKind::Star => BinaryOp::Mul,
+        TokenKind::Slash => BinaryOp::Div,
+        TokenKind::Percent => BinaryOp::Remainder,
+
+        TokenKind::And => BinaryOp::And,
+        TokenKind::Or => BinaryOp::Or,
+        TokenKind::Caret => BinaryOp::Xor,
+        TokenKind::AndNot => BinaryOp::AndNot,
+
+        TokenKind::LShift => BinaryOp::LShift,
+        TokenKind::RShift => BinaryOp::RShift,
+
+        TokenKind::Less => BinaryOp::Less,
+        TokenKind::LessOrEqual => BinaryOp::LessOrEqual,
+        TokenKind::Greater => BinaryOp::Greater,
+        TokenKind::GreaterOrEqual => BinaryOp::GreaterOrEqual,
+        TokenKind::Equals => BinaryOp::Equals,
+        TokenKind::NotEqual => BinaryOp::NotEqual,
+
+        TokenKind::LogAnd => BinaryOp::LogAnd,
+        TokenKind::LogOr => BinaryOp::LogOr,
+        _ => panic!("Unexpected token {:?}", token),
+    };
+
+    let right = p.parse_expr_until(rbp)?;
+
+    Ok(P(Expr::Binary { op, left, right }))
+}
+
+fn left_func_call(p: &mut Parser, _token: Token, left: P<Expr>, _rbp: i32) -> CompileResult<P<Expr>> {
+    let mut args = Vec::new();
+    let mut ty: Option<P<Type>> = None;
+    let mut ellipsis = false;
+
+    if !p.lexer.match_token(TokenKind::RParen)? {
+        let arg1_is_type = if let Expr::Literal(Literal::Ident(ref ident)) = *left {
+            let s: &str = ident.as_ref();
+            s == "make" || s == "new"
+        } else {
+            false
+        };
+
+        if arg1_is_type {
+            ty = Some(p.parse_type()?);
+        }
+
+        while !p.lexer.match_token(TokenKind::RParen)? {
+            args.push(*p.parse_expr_until(BP_COMMA)?);
+            if !p.lexer.match_token(TokenKind::Comma)? {
+                p.lexer.expect_token(TokenKind::RParen)?;
+                break;
+            }
+
+            if p.lexer.match_token(TokenKind::Ellipsis)? {
+                p.lexer.expect_token(TokenKind::RParen)?;
+                ellipsis = true;
+                break;
+            }
+        }
+    };
+
+    Ok(P(Expr::Call {
+        left,
+        exprs: args.into(),
+        ty,
+        ellipsis
+    }))
+}
+
+impl<'a> Parser<'a> {
+    fn parse_null(&mut self, token: Token) -> CompileResult<Result<P<Expr>, Token>> {
+        use self::TokenKind::*;
+
+        let (nud, bp): (NullDenotation, i32) = match token.kind {
+            Ident(_) | Integer(_) | StrLit(_) => {
+                (null_constant, -1)
+            }
+            LParen => {
+                (null_paren, BP_PARENS)
+            }
+            Plus | Minus | LogNot | Caret | Star | And | SendReceive => {
+                (null_prefix_op, BP_UNARY)
+            }
+            _ => {
+                return Ok(Err(token));
+            }
+        };
+
+        nud(self, token, bp).map(|e| Ok(e))
+    }
+
+    fn parse_left(&mut self, min_rbp: i32, node: Box<Expr>) -> CompileResult<P<Expr>> {
+        use self::TokenKind::*;
+
+        let (led, bp): (LeftDenotation, i32) = {
+            let token = if let Some(token) = self.lexer.peek()? {
+                token
+            } else {
+                return Ok(node); // No tokens left, terminate expression.
+            };
+
+            match token.kind {
+                LParen => (left_func_call, BP_ACCESSOR),
+                LBracket => (left_index, BP_ACCESSOR),
+                Dot => (left_selector, BP_ACCESSOR),
+
+                LogOr => (left_binary_op, BP_LOGOR),
+                LogAnd => (left_binary_op, BP_LOGAND),
+                Equals | NotEqual | Less | LessOrEqual | Greater | GreaterOrEqual => (left_binary_op, BP_COMPARISON),
+                Plus | Minus | Or | Caret => (left_binary_op, BP_ADD),
+                Star | Slash | Percent | LShift | RShift | And | AndNot => (left_binary_op, BP_MUL),
+
+                _ => {
+                    // This token cannot form part of the expression, so terminate
+                    // TODO: Are there any tokens that shouldn't terminate an expression error free?
+                    return Ok(node);
+                }
+            }
+        };
+
+        let (lbp, rbp) = (bp, bp);
+
+        if min_rbp >= lbp {
+            // We've reached something that binds tighter than us, so terminate this iteration.
+            return Ok(node);
+        }
+
+        // The use of peek above has already ensured there's a token, so unwrap here.
+        let token = self.lexer.next()?.unwrap();
+
+        let node = led(self, token, node, rbp)?;
+
+        // Not done
+        self.parse_left(min_rbp, node)
+    }
+
+    fn parse_expr_until(&mut self, min_rbp: i32) -> CompileResult<P<Expr>> {
+        let token = if let Some(token) = self.lexer.next()? {
+            token
+        } else {
+            let span = Span::new(self.lexer.offset(), self.lexer.offset());
+            return err!(span, "expected expression, found end of file");
+        };
+
+        let node = match self.parse_null(token)? {
+            Ok(node) => node,
+            Err(token) => return err!(token, "expected expression, found {:#?}", token),
+        };
+
+        self.parse_left(min_rbp, node)
+    }
+
+    fn parse_opt_expr_until(&mut self, min_rbp: i32) -> CompileResult<Option<P<Expr>>> {
+        let token = if let Some(token) = self.lexer.next()? {
+            token
+        } else {
+            let span = Span::new(self.lexer.offset(), self.lexer.offset());
+            return err!(span, "expected expression, found end of file");
+        };
+
+        let node = if let Ok(node) = self.parse_null(token)? {
+            node
+        } else {
+            return Ok(None);
+        };
+
+        self.parse_left(min_rbp, node).map(|e| Some(e))
+    }
+
+    pub fn parse_expr(&mut self) -> CompileResult<P<Expr>> {
+        self.parse_expr_until(0)
+    }
+
+    pub fn parse_opt_expr(&mut self) -> CompileResult<Option<P<Expr>>> {
+        self.parse_opt_expr_until(0)
     }
 }

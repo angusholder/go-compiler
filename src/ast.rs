@@ -35,11 +35,11 @@ pub enum BinaryOp {
     // Mul op
     Mul,
     Div,
-    Modulo,
+    Remainder,
     LShift,
     RShift,
     And,
-    Nand,
+    AndNot,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,7 +67,7 @@ pub enum Literal {
     Imag(f64),
     Rune(char),
     String(String),
-    Ident(String),
+    Ident(Ident),
     // TODO: CompositeLit
     Function {
         sig: Signature,
@@ -93,7 +93,7 @@ pub enum Expr {
     },
     Selector {
         left: P<Expr>,
-        right: Ident,
+        field_name: Ident,
     },
     Index {
         left: P<Expr>,
@@ -107,10 +107,11 @@ pub enum Expr {
         max: Option<P<Expr>>,
     },
     TypeAssertion {
-        child: P<Expr>,
+        left: P<Expr>,
         ty: P<Type>,
     },
     Call {
+        left: P<Expr>,
         // For make(T, n) and new(T)
         ty: Option<P<Type>>,
         exprs: List<Expr>,

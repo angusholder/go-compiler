@@ -1,3 +1,4 @@
+#[macro_use]
 mod utils;
 mod lexer;
 mod ast;
