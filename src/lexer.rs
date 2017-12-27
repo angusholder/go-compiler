@@ -249,6 +249,7 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Token {
     pub kind: TokenKind,
+    pub span: Span,
 }
 
 fn is_ident_head(c: char) -> bool { c.is_alphabetic() || c == '_' }
@@ -256,6 +257,11 @@ fn is_ident_head(c: char) -> bool { c.is_alphabetic() || c == '_' }
 fn is_ident_tail(c: char) -> bool { c.is_alphanumeric() || c == '_' }
 
 fn is_number_head(c: char) -> bool { c.is_numeric() }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct LexerCheckpoint {
+    offset: usize,
+}
 
 pub struct Lexer<'src> {
     iter: PeekableCharIndices<'src>,
@@ -299,31 +305,31 @@ impl<'src> Lexer<'src> {
     }
 
     pub fn match_ident(&mut self) -> CompileResult<Option<Ident>> {
-        self.peek()?;
-        match self.peeked.take().unwrap() {
-            Some(Token { kind: TokenKind::Ident(ident) }) => Ok(Some(ident)),
+        let next = self.next()?;
+        match next {
+            Some(Token { kind: TokenKind::Ident(ident), .. }) => Ok(Some(ident)),
             other => {
-                self.peeked = Some(other);
+                self.unget(other);
                 Ok(None)
             }
         }
     }
 
     pub fn expect_token(&mut self, token_kind: TokenKind) -> CompileResult<()> {
-        if self.match_token(token_kind.clone())? {
+        let next = self.next()?;
+        if next.as_ref().map_or(false, |t| t.kind == token_kind) {
             Ok(())
         } else {
-            let peeked = self.peeked.as_ref().unwrap();
-            err!(peeked, "expected token {:#?}, got {:#?}", token_kind, peeked)
+            err!(next, "expected token {:#?}, got {:#?}", token_kind, next)
         }
     }
 
     pub fn expect_keyword(&mut self, keyword: Keyword) -> CompileResult<()> {
-        if self.match_keyword(keyword)? {
+        let next = self.next()?;
+        if next.as_ref().map_or(false, |t| t.kind == TokenKind::Keyword(keyword)) {
             Ok(())
         } else {
-            let peeked = self.peeked.as_ref().unwrap();
-            err!(peeked, "expected keyword {:#?}, got {:#?}", keyword, peeked)
+            err!(next, "expected keyword {:#?}, got {:#?}", keyword, next)
         }
     }
 
@@ -354,6 +360,7 @@ impl<'src> Lexer<'src> {
             self.insert_semicolon = false;
             return Ok(Some(Token {
                 kind: TokenKind::Semicolon,
+                span: Span::new(self.offset(), self.offset()),
             }));
         }
 
@@ -361,8 +368,6 @@ impl<'src> Lexer<'src> {
             Some(next) => next,
             None => return Ok(None),
         };
-
-        let span = Span::new(start_index, self.iter.offset());
 
         use self::TokenKind::*;
         let kind = match ch {
@@ -569,9 +574,12 @@ impl<'src> Lexer<'src> {
                 Integer(string.parse::<i64>().unwrap())
             }
             _ => {
+                let span = Span::new(start_index, self.offset());
                 return err!(span, "unexpected character `{:#?}`", ch);
             }
         };
+
+        let span = Span::new(start_index, self.iter.offset());
 
         let semicolon_should_follow = kind.semicolon_should_follow();
         let passed_line = self.eat_whitespace();
@@ -579,7 +587,7 @@ impl<'src> Lexer<'src> {
 
         self.insert_semicolon = passed_line && !semicolon_follows && semicolon_should_follow;
 
-        Ok(Some(Token { kind }))
+        Ok(Some(Token { kind, span }))
     }
 
     fn eat_whitespace(&mut self) -> bool {
@@ -622,6 +630,23 @@ impl<'src> Lexer<'src> {
     }
 
     pub fn offset(&self) -> usize {
-        self.iter.offset()
+        if let Some(Some(Token { span, .. })) = self.peeked {
+            span.start as usize
+        } else {
+            // if self.peeked == Some(None) then we are at the end of the source so still just
+            // use the current offset
+            self.iter.offset()
+        }
+    }
+
+    pub fn checkpoint(&self) -> LexerCheckpoint {
+        LexerCheckpoint {
+            offset: self.offset(),
+        }
+    }
+
+    pub fn backtrack(&mut self, checkpoint: LexerCheckpoint) {
+        self.peeked = None;
+        self.iter.set_offset(checkpoint.offset);
     }
 }

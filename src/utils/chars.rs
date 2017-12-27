@@ -1,17 +1,17 @@
 use std::str::Chars;
 
 #[derive(Debug)]
-pub struct PeekableCharIndices<'a> {
-    front: *const u8,
-    iter: Chars<'a>,
+pub struct PeekableCharIndices<'src> {
+    src: &'src str,
+    iter: Chars<'src>,
     peeked: Option<(usize, char)>,
 }
 
-impl<'a> PeekableCharIndices<'a> {
-    pub fn new(string: &'a str) -> PeekableCharIndices<'a> {
+impl<'src> PeekableCharIndices<'src> {
+    pub fn new(src: &'src str) -> PeekableCharIndices<'src> {
         PeekableCharIndices {
-            front: string.as_ptr(),
-            iter: string.chars(),
+            src,
+            iter: src.chars(),
             peeked: None,
         }
     }
@@ -39,7 +39,7 @@ impl<'a> PeekableCharIndices<'a> {
     }
 
     fn raw_offset(&self) -> usize {
-        (self.iter.as_str().as_ptr() as usize) - (self.front as usize)
+        (self.iter.as_str().as_ptr() as usize) - (self.src.as_ptr() as usize)
     }
 
     pub fn offset(&self) -> usize {
@@ -48,6 +48,10 @@ impl<'a> PeekableCharIndices<'a> {
         } else {
             self.raw_offset()
         }
+    }
+
+    pub fn set_offset(&mut self, offset: usize) {
+        self.iter = self.src[offset..].chars();
     }
 
     pub fn match_char(&mut self, expected: char) -> bool {
