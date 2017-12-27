@@ -180,12 +180,12 @@ pub enum SimpleStmt {
         channel: P<Expr>,
         expr: P<Expr>,
     },
-    Inc(P<Expr>),
-    Dec(P<Expr>),
+    Increment(P<Expr>),
+    Decrement(P<Expr>),
     Assignment {
-        left: P<Expr>,
-        right: P<Expr>,
-        op: Option<AssignOp>,
+        left: List<Expr>,
+        right: List<Expr>,
+        op: AssignOp,
     },
     ShortVarDecl {
         idents: List<Ident>,

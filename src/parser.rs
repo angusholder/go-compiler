@@ -585,6 +585,7 @@ impl<'src> Parser<'src> {
 
     fn parse_stmt(&mut self) -> CompileResult<P<Stmt>> {
         use self::Keyword::*;
+        use self::TokenKind::Keyword;
 
         let token = if let Some(token) = self.lexer.next()? {
             token
@@ -592,62 +593,142 @@ impl<'src> Parser<'src> {
             return err!(Span::INVALID, "expected statement, got end of file");
         };
 
-        let stmt: Stmt;
-
-        if let TokenKind::Keyword(keyword) = token.kind {
-            stmt = match keyword {
-                Var | Type | Const => {
-                    Stmt::Declaration(self.parse_decl()?)
-                }
-                Go => {
-                    Stmt::Go(self.parse_expr()?)
-                }
-                Return => {
-                    let mut params = Vec::new();
-                    while let Some(expr) = self.parse_opt_expr()? {
-                        params.push(*expr);
-                        if !self.lexer.match_token(TokenKind::Comma)? {
-                            break;
-                        }
+        let stmt = match token.kind {
+            Keyword(Var) | Keyword(Type) | Keyword(Const) => {
+                Stmt::Declaration(self.parse_decl()?)
+            }
+            Keyword(Go) => {
+                Stmt::Go(self.parse_expr()?)
+            }
+            Keyword(Return) => {
+                let mut params = Vec::new();
+                while let Some(expr) = self.parse_opt_expr()? {
+                    params.push(*expr);
+                    if !self.lexer.match_token(TokenKind::Comma)? {
+                        break;
                     }
-                    Stmt::Return(params.into())
                 }
-                Break => {
-                    Stmt::Break(self.lexer.match_ident()?)
-                }
-                Continue => {
-                    Stmt::Continue(self.lexer.match_ident()?)
-                }
-                Goto => {
-                    Stmt::Goto(self.lexer.expect_ident()?)
-                }
-                Fallthrough => {
-                    Stmt::Fallthrough
-                }
-                If => {
-                    Stmt::If(self.parse_if_stmt()?)
-                }
-                Switch => {
-                    unimplemented!()
-                }
-                Select => {
-                    unimplemented!()
-                }
-                For => {
-                    Stmt::For(self.parse_for_stmt()?)
-                }
-                Defer => {
-                    Stmt::Defer(self.parse_expr()?)
-                }
-            };
-        } else if token.kind == TokenKind::LBrace {
-            stmt = Stmt::Block(self.parse_block()?);
-        }
+                Stmt::Return(params.into())
+            }
+            Keyword(Break) => {
+                Stmt::Break(self.lexer.match_ident()?)
+            }
+            Keyword(Continue) => {
+                Stmt::Continue(self.lexer.match_ident()?)
+            }
+            Keyword(Goto) => {
+                Stmt::Goto(self.lexer.expect_ident()?)
+            }
+            Keyword(Fallthrough) => {
+                Stmt::Fallthrough
+            }
+            Keyword(If) => {
+                Stmt::If(self.parse_if_stmt()?)
+            }
+            Keyword(Switch) => {
+                unimplemented!()
+            }
+            Keyword(Select) => {
+                unimplemented!()
+            }
+            Keyword(For) => {
+                Stmt::For(self.parse_for_stmt()?)
+            }
+            Keyword(Defer) => {
+                Stmt::Defer(self.parse_expr()?)
+            }
+            TokenKind::LBrace => {
+                Stmt::Block(self.parse_block()?)
+            }
+            _ => unimplemented!("{:#?}", token)
+        };
 
         Ok(P(stmt))
     }
 
-    fn parse_opt_simple_stmt(&mut self) -> CompileResult<SimpleStmt> {
+    fn parse_opt_simple_stmt(&mut self) -> CompileResult<Option<SimpleStmt>> {
+        let expr = if let Some(expr) = self.parse_opt_expr()? {
+            expr
+        } else {
+            return Ok(None);
+        };
 
+        let checkpoint = self.lexer.checkpoint();
+        let next_token = self.lexer.next()?;
+
+        let simple_stmt = match next_token.map(|t| t.kind) {
+            None => {
+                SimpleStmt::Expr(expr)
+            }
+            Some(TokenKind::SendReceive) => {
+                let channel = expr;
+                let expr = self.parse_expr()?;
+                SimpleStmt::Send { channel, expr }
+            }
+            Some(TokenKind::Increment) => {
+                SimpleStmt::Increment(expr)
+            }
+            Some(TokenKind::Decrement) => {
+                SimpleStmt::Decrement(expr)
+            }
+            Some(TokenKind::Assign(_)) | Some(TokenKind::ColonEq) => {
+                // Replay the assignment operator
+                self.lexer.backtrack(checkpoint);
+                self.parse_assignment(vec![*expr])?
+            }
+            Some(TokenKind::Comma) => {
+                let mut left = self.parse_comma_separated_list(|p| p.parse_expr().map(|e| *e))?;
+                left.insert(0, *expr);
+
+                self.parse_assignment(left)?
+            }
+            _ => return Ok(None)
+        };
+
+        Ok(Some(simple_stmt))
+    }
+
+    fn parse_assignment(&mut self, left: Vec<Expr>) -> CompileResult<SimpleStmt> {
+        match self.lexer.next()? {
+            Some(Token { kind: TokenKind::Assign(op), .. }) => {
+                let right = self.parse_comma_separated_list(|p| p.parse_expr().map(|e| *e))?;
+                if left.len() != right.len() {
+                    let span = Span::new(self.lexer.offset(), self.lexer.offset());
+                    return err!(span, "assignment count mismatch: {} = {}",
+                        left.len(), right.len())
+                }
+                Ok(SimpleStmt::Assignment { left: left.into(), right: right.into(), op })
+            }
+            Some(Token { kind: TokenKind::ColonEq, .. }) => {
+                let exprs = self.parse_comma_separated_list(|p| p.parse_expr().map(|e| *e))?.into();
+                let idents = left.into_iter().map(|e| {
+                    if let Expr::Literal(Literal::Ident(ident)) = e {
+                        Ok(ident)
+                    } else {
+                        // TODO: Span
+                        err!(Span::INVALID, "non-name {:#?} on left side of :=", e)
+                    }
+                }).collect::<CompileResult<Vec<Ident>>>()?.into();
+                Ok(SimpleStmt::ShortVarDecl { idents, exprs })
+            }
+            None => {
+                return err!(Span::INVALID, "expected assignment, got end of file");
+            }
+            other => {
+                return err!(Span::INVALID, "expected assignment, got {:#?}", other)
+            }
+        }
+    }
+
+    fn parse_comma_separated_list<R, F>(&mut self, f: F) -> CompileResult<Vec<R>>
+        where F: Fn(&mut Parser) -> CompileResult<R>
+    {
+        let mut result = vec![f(self)?];
+
+        while self.lexer.match_token(TokenKind::Comma)? {
+            result.push(f(self)?);
+        }
+
+        Ok(result.into())
     }
 }
