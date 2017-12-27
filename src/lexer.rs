@@ -103,13 +103,56 @@ impl FromStr for Keyword {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AssignOp {
+    // Plain assign
+    None,
+
+    // Add op
+    Add,
+    Sub,
+    Or,
+    Xor,
+
+    // Mul op
+    Mul,
+    Div,
+    Modulo,
+    LShift,
+    RShift,
+    And,
+    AndNot,
+}
+
+impl AssignOp {
+    pub fn as_str(&self) -> &'static str {
+        use self::AssignOp::*;
+        match *self {
+            None => "=",
+
+            Add => "+=",
+            Sub => "-=",
+            Or => "|=",
+            Xor => "^=",
+
+            Mul => "*=",
+            Div => "/=",
+            Modulo => "%=",
+            LShift => "<<=",
+            RShift => ">>=",
+            And => "&=",
+            AndNot => "&^=",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TokenKind {
     Keyword(Keyword),
+    Assign(AssignOp),
 
     Minus,          // -
     Decrement,      // --
-    MinusEq,        // -=
     Comma,          // ,
     Semicolon,      // ;
     Colon,          // :
@@ -125,34 +168,23 @@ pub enum TokenKind {
     LBrace,         // {
     RBrace,         // }
     Star,           // *
-    StarEq,         // *=
     Slash,          // /
-    SlashEq,        // /=
     And,            // &
     LogAnd,         // &&
     AndNot,         // &^
-    AndNotEq,       // &^=
-    AndEq,          // &=
     Percent,        // %
-    PercentEq,      // %=
     Caret,          // ^
-    CaretEq,        // ^=
     Plus,           // +
     Increment,      // ++
-    PlusEq,         // +=
     Less,           // <
     SendReceive,    // <-
     LShift,         // <<
-    LShiftEq,       // <<=
     LessOrEqual,    // <=
-    Assign,         // =
     Equals,         // ==
     Greater,        // >
     GreaterOrEqual, // >=
     RShift,         // >>
-    RShiftEq,       // >>=
     Or,             // |
-    OrEq,           // |=
     LogOr,          // ||
 
     Ident(Ident),
@@ -189,10 +221,10 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
         use self::TokenKind::*;
         let s: &'static str = match *self.token_kind {
             Keyword(keyword) => keyword.as_str(),
+            Assign(op) => op.as_str(),
 
             Minus => "-",
             Decrement => "--",
-            MinusEq => "-=",
             Comma => ",",
             Semicolon => ";",
             Colon => ":",
@@ -208,34 +240,23 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
             LBrace => "{",
             RBrace => "}",
             Star => "*",
-            StarEq => "*=",
             Slash => "/",
-            SlashEq => "/=",
             And => "&",
             LogAnd => "&&",
             AndNot => "&^",
-            AndNotEq => "&^=",
-            AndEq => "&=",
             Percent => "%",
-            PercentEq => "%=",
             Caret => "^",
-            CaretEq => "^=",
             Plus => "+",
             Increment => "++",
-            PlusEq => "+=",
             Less => "<",
             SendReceive => "<-",
             LShift => "<<",
-            LShiftEq => "<<=",
             LessOrEqual => "<=",
-            Assign => "=",
             Equals => "==",
             Greater => ">",
             GreaterOrEqual=> ">=",
             RShift => ">>",
-            RShiftEq => ">>=",
             Or => "|",
-            OrEq => "|=",
             LogOr => "||",
 
             Ident(ref ident) => return f.write_str(ident),
@@ -375,7 +396,7 @@ impl<'src> Lexer<'src> {
                 if self.iter.match_char('-') {
                     Decrement
                 } else if self.iter.match_char('=') {
-                    MinusEq
+                    Assign(AssignOp::Sub)
                 } else {
                     Minus
                 }
@@ -416,14 +437,14 @@ impl<'src> Lexer<'src> {
             '}' => RBrace,
             '*' => {
                 if self.iter.match_char('=') {
-                    StarEq
+                    Assign(AssignOp::Mul)
                 } else {
                     Star
                 }
             }
             '/' => {
                 if self.iter.match_char('=') {
-                    SlashEq
+                    Assign(AssignOp::Div)
                 } else {
                     Slash
                 }
@@ -433,26 +454,26 @@ impl<'src> Lexer<'src> {
                     LogAnd
                 } else if self.iter.match_char('^') {
                     if self.iter.match_char('=') {
-                        AndNotEq
+                        Assign(AssignOp::AndNot)
                     } else {
                         AndNot
                     }
                 } else if self.iter.match_char('=') {
-                    AndEq
+                    Assign(AssignOp::And)
                 } else {
                     And
                 }
             }
             '%' => {
                 if self.iter.match_char('=') {
-                    PercentEq
+                    Assign(AssignOp::Modulo)
                 } else {
                     Percent
                 }
             }
             '^' => {
                 if self.iter.match_char('=') {
-                    CaretEq
+                    Assign(AssignOp::Xor)
                 } else {
                     Caret
                 }
@@ -461,7 +482,7 @@ impl<'src> Lexer<'src> {
                 if self.iter.match_char('+') {
                     Increment
                 } else if self.iter.match_char('=') {
-                    PlusEq
+                    Assign(AssignOp::Add)
                 } else {
                     Plus
                 }
@@ -471,7 +492,7 @@ impl<'src> Lexer<'src> {
                     SendReceive
                 } else if self.iter.match_char('<') {
                     if self.iter.match_char('=') {
-                        LShiftEq
+                        Assign(AssignOp::LShift)
                     } else {
                         LShift
                     }
@@ -485,13 +506,13 @@ impl<'src> Lexer<'src> {
                 if self.iter.match_char('=') {
                     Equals
                 } else {
-                    Assign
+                    Assign(AssignOp::None)
                 }
             }
             '>' => {
                 if self.iter.match_char('>') {
                     if self.iter.match_char('=') {
-                        RShiftEq
+                        Assign(AssignOp::RShift)
                     } else {
                         RShift
                     }
@@ -503,7 +524,7 @@ impl<'src> Lexer<'src> {
             }
             '|' => {
                 if self.iter.match_char('=') {
-                    OrEq
+                    Assign(AssignOp::Or)
                 } else if self.iter.match_char('|') {
                     LogOr
                 } else {

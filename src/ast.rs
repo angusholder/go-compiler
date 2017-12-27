@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use lexer::AssignOp;
 use utils::ptr::{ P, List };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -40,24 +41,6 @@ pub enum BinaryOp {
     RShift,
     And,
     AndNot,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AssignOp {
-    // Add op
-    Add,
-    Sub,
-    Or,
-    Xor,
-
-    // Mul op
-    Mul,
-    Div,
-    Modulo,
-    LShift,
-    RShift,
-    And,
-    Nand,
 }
 
 #[derive(Debug)]
@@ -158,7 +141,7 @@ pub enum IfStmtTail {
 
 #[derive(Debug)]
 pub struct IfStmt {
-    pub pre_stmt: Option<P<SimpleStmt>>,
+    pub pre_stmt: Option<SimpleStmt>,
     pub cond: P<Expr>,
     pub then: Block,
     pub els: IfStmtTail,
@@ -174,9 +157,9 @@ pub enum RangeClauseLeft {
 pub enum ForStmtHeader {
     Condition(P<Expr>),
     ForClause {
-        init: Option<P<SimpleStmt>>,
+        init: Option<SimpleStmt>,
         cond: Option<P<Expr>>,
-        post: Option<P<SimpleStmt>>,
+        post: Option<SimpleStmt>,
     },
     RangeClause {
         left: RangeClauseLeft,
@@ -192,7 +175,6 @@ pub struct ForStmt {
 
 #[derive(Debug)]
 pub enum SimpleStmt {
-    Empty,
     Expr(P<Expr>),
     Send {
         channel: P<Expr>,
