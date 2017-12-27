@@ -119,7 +119,7 @@ pub enum Expr {
     },
 }
 
-pub type Label = String;
+pub type Label = Ident;
 pub type Block = List<Stmt>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -150,9 +150,10 @@ impl Deref for Ident {
 }
 
 #[derive(Debug)]
-pub enum BlockOrIf {
+pub enum IfStmtTail {
+    None,
+    ElseIf(P<IfStmt>),
     Block(Block),
-    If(P<IfStmt>),
 }
 
 #[derive(Debug)]
@@ -160,7 +161,7 @@ pub struct IfStmt {
     pub pre_stmt: Option<P<SimpleStmt>>,
     pub cond: P<Expr>,
     pub then: Block,
-    pub els: Option<BlockOrIf>,
+    pub els: IfStmtTail,
 }
 
 #[derive(Debug)]
@@ -181,6 +182,12 @@ pub enum ForStmtHeader {
         left: RangeClauseLeft,
         right: P<Expr>,
     }
+}
+
+#[derive(Debug)]
+pub struct ForStmt {
+    header: ForStmtHeader,
+    body: Block,
 }
 
 #[derive(Debug)]
@@ -253,10 +260,7 @@ pub enum Stmt {
     Block(Block),
     If(IfStmt),
     // TODO: SwitchStmt, SelectStmt
-    For {
-        header: ForStmtHeader,
-        body: Block,
-    },
+    For(ForStmt),
     Defer(P<Expr>),
 }
 

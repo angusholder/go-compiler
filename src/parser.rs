@@ -24,8 +24,14 @@ impl<'src> Parser<'src> {
         }
 
         let mut decls: Vec<TopLevelDecl> = Vec::new();
-        while let Some(decl) = self.parse_decl()? {
+        while let Some(decl) = self.parse_top_level_decl()? {
             decls.push(decl);
+        }
+
+        let next_token = self.lexer.next()?;
+        if next_token != None {
+            return err!(next_token, "expected top level declaration or end of file, got {:#?}",
+                next_token);
         }
 
         Ok(SourceFile {
@@ -42,11 +48,11 @@ impl<'src> Parser<'src> {
         if self.lexer.match_token(TokenKind::LParen)? {
             while !self.lexer.match_token(TokenKind::RParen)? {
                 specs.push(self.parse_import_spec()?);
-                self.lexer.expect_token(TokenKind::Semicolon)?;
+                self.expect_terminal()?;
             }
         } else {
             specs.push(self.parse_import_spec()?);
-            self.lexer.expect_token(TokenKind::Semicolon)?;
+            self.expect_terminal()?;
         }
         Ok(ImportDecl {
             decls: specs.into()
@@ -68,7 +74,9 @@ impl<'src> Parser<'src> {
         Ok(ImportSpec { alias, path })
     }
 
-    fn parse_decl(&mut self) -> CompileResult<Option<TopLevelDecl>> {
+    fn parse_top_level_decl(&mut self) -> CompileResult<Option<TopLevelDecl>> {
+        use self::Keyword::*;
+
         let token = if let Some(token) = self.lexer.next()? {
             token
         } else {
@@ -76,11 +84,14 @@ impl<'src> Parser<'src> {
         };
 
         match token.kind {
-            TokenKind::Keyword(Keyword::Func) => {
+            TokenKind::Keyword(Func) => {
                 Ok(Some(TopLevelDecl::Function(self.parse_func()?)))
             }
+            TokenKind::Keyword(Const) | TokenKind::Keyword(Type) | TokenKind::Keyword(Var) => {
+                unimplemented!()
+            }
             _ => {
-                err!(token, "Expected top level declaration (const/type/var/func), found {:#?}",
+                err!(token, "expected top level declaration (const/type/var/func), found {:#?}",
                     token.kind)
             }
         }
@@ -203,7 +214,7 @@ impl<'src> Parser<'src> {
                 unimplemented!()
             }
             other => {
-                self.lexer.unget(Some(Token { kind: other }));
+                self.lexer.unget(Some(Token { kind: other, span: token.span }));
                 return Ok(None);
             }
         }))
@@ -226,20 +237,13 @@ impl<'src> Parser<'src> {
             err!(next, "expected type, got {:#?}", next)
         }
     }
-
-    fn parse_block(&mut self) -> CompileResult<Block> {
-        let mut stmts = Vec::new();
-        while !self.lexer.match_token(TokenKind::RBrace)? {
-            stmts.push(*self.parse_stmt()?);
-        }
-        Ok(List::from(stmts))
-    }
-
-    fn parse_stmt(&mut self) -> CompileResult<P<Stmt>> {
-        unimplemented!()
-    }
 }
 
+
+
+//
+// Expression parsing
+//
 const BP_PARENS: i32 = 0;      // ( <expr> )
 const BP_COMMA: i32 = 1;       // ,
 const BP_LOGOR: i32 = 10;      // ||
@@ -497,5 +501,153 @@ impl<'a> Parser<'a> {
 
     pub fn parse_opt_expr(&mut self) -> CompileResult<Option<P<Expr>>> {
         self.parse_opt_expr_until(0)
+    }
+}
+
+
+
+//
+// Statement parsing
+//
+impl<'src> Parser<'src> {
+    fn expect_terminal(&mut self) -> CompileResult<()> {
+        self.lexer.expect_token(TokenKind::Semicolon)
+    }
+
+    fn expect_terminal_or_end_scope(&mut self) -> CompileResult<bool> {
+        let token = self.lexer.next()?;
+        match token.map(|t| t.kind) {
+            Some(TokenKind::Semicolon) => {
+
+            }
+            Some(TokenKind::RBrace) | Some(TokenKind::RParen) => {
+
+            }
+            Some(other) => {
+
+            }
+            None => {
+
+            }
+        }
+        unimplemented!()
+    }
+
+    fn parse_block(&mut self) -> CompileResult<Block> {
+        let mut stmts = Vec::new();
+        while !self.lexer.match_token(TokenKind::RBrace)? {
+            stmts.push(*self.parse_stmt()?);
+
+            // Semicolons can be omitted when a '}' follows, allowing succinct syntax such as:
+            // if cond { do_thing() }
+            if !self.lexer.match_token(TokenKind::Semicolon)? {
+                if self.lexer.match_token(TokenKind::RBrace)? {
+                    break;
+                } else {
+                    let token = self.lexer.next()?;
+                    return err!(token, "expected ';' or '}}', got {:#?}", token);
+                }
+            }
+        }
+        Ok(List::from(stmts))
+    }
+
+    fn parse_decl(&mut self) -> CompileResult<Declaration> {
+        unimplemented!()
+    }
+
+    fn parse_if_stmt(&mut self) -> CompileResult<IfStmt> {
+        let pre_stmt = self.parse_opt_simple_stmt()?;
+        if pre_stmt.is_some() {
+            self.expect_terminal()?;
+        }
+        let cond = self.parse_expr()?;
+        self.lexer.expect_token(TokenKind::LBrace)?;
+        let then = self.parse_block()?;
+
+        let els = if self.lexer.match_keyword(Keyword::Else)? {
+            if self.lexer.match_keyword(Keyword::If)? {
+                IfStmtTail::ElseIf(P(self.parse_if_stmt()?))
+            } else {
+                self.lexer.expect_token(TokenKind::LBrace)?;
+                IfStmtTail::Block(self.parse_block()?)
+            }
+        } else {
+            IfStmtTail::None
+        };
+
+        Ok(IfStmt { pre_stmt, cond, then, els })
+    }
+
+    fn parse_for_stmt(&mut self) -> CompileResult<ForStmt> {
+        unimplemented!()
+    }
+
+    fn parse_stmt(&mut self) -> CompileResult<P<Stmt>> {
+        use self::Keyword::*;
+
+        let token = if let Some(token) = self.lexer.next()? {
+            token
+        } else {
+            return err!(Span::INVALID, "expected statement, got end of file");
+        };
+
+        let stmt: Stmt;
+
+        if let TokenKind::Keyword(keyword) = token.kind {
+            stmt = match keyword {
+                Var | Type | Const => {
+                    Stmt::Declaration(self.parse_decl()?)
+                }
+                Go => {
+                    Stmt::Go(self.parse_expr()?)
+                }
+                Return => {
+                    let mut params = Vec::new();
+                    while let Some(expr) = self.parse_opt_expr()? {
+                        params.push(*expr);
+                        if !self.lexer.match_token(TokenKind::Comma)? {
+                            break;
+                        }
+                    }
+                    Stmt::Return(params.into())
+                }
+                Break => {
+                    Stmt::Break(self.lexer.match_ident()?)
+                }
+                Continue => {
+                    Stmt::Continue(self.lexer.match_ident()?)
+                }
+                Goto => {
+                    Stmt::Goto(self.lexer.expect_ident()?)
+                }
+                Fallthrough => {
+                    Stmt::Fallthrough
+                }
+                If => {
+                    Stmt::If(self.parse_if_stmt()?)
+                }
+                Switch => {
+                    unimplemented!()
+                }
+                Select => {
+                    unimplemented!()
+                }
+                For => {
+                    Stmt::For(self.parse_for_stmt()?)
+                }
+                Defer => {
+                    Stmt::Defer(self.parse_expr()?)
+                }
+            };
+        } else if token.kind == TokenKind::LBrace {
+            stmt = Stmt::Block(self.parse_block()?);
+        }
+
+        Ok(P(stmt))
+    }
+
+    fn parse_opt_simple_stmt(&mut self) -> CompileResult<SimpleStmt> {
+
     }
 }
