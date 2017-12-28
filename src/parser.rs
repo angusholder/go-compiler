@@ -1,3 +1,6 @@
+use std::collections::VecDeque;
+use std::mem;
+
 use ast::*;
 use lexer::{ Lexer, Token, TokenKind, Keyword };
 use utils::ptr::{ List, P };
@@ -6,14 +9,14 @@ use utils::result::{ CompileResult, Span };
 pub struct Parser<'src> {
     lexer: Lexer<'src>,
     token: Token,
-    lookahead: Vec<Token>,
+    lookahead: VecDeque<Token>,
 }
 
 impl<'src> Parser<'src> {
     pub fn new(src: &'src str) -> Parser<'src> {
         Parser {
             lexer: Lexer::new(src),
-            lookahead: Vec::new(),
+            lookahead: VecDeque::new(),
             token: Token {
                 kind: TokenKind::Eof,
                 span: Span::INVALID,
@@ -47,6 +50,107 @@ impl<'src> Parser<'src> {
             imports: imports.into(),
             decls: decls.into(),
         })
+    }
+}
+
+impl<'src> Parser<'src> {
+    fn look_ahead<R, F>(&mut self, dist: usize, f: F) -> CompileResult<R>
+        where F: FnOnce(&Token) -> R
+    {
+        if dist == 0 {
+            Ok(f(&self.token))
+        } else {
+            let offset = dist - 1;
+            while self.lookahead.len() < offset {
+                let token = self.lexer.next()?;
+                self.lookahead.push(token);
+            }
+            Ok(f(&self.lookahead[offset]))
+        }
+    }
+
+    fn bump(&mut self) -> CompileResult<Token> {
+        if let Some(token) = self.lookahead.pop_front() {
+            Ok(mem::replace(&mut self.token, token))
+        } else {
+            let token = self.lexer.next()?;
+            Ok(mem::replace(&mut self.token, token))
+        }
+    }
+
+    fn unbump(&mut self, token: Token) {
+        let next = mem::replace(&mut self.token, token);
+        self.lookahead.push_front(next);
+    }
+
+    fn bump_if<R, F>(&mut self, f: F) -> CompileResult<Option<R>>
+        where F: FnOnce(Token) -> Result<R, Token>
+    {
+        match f(self.bump()?) {
+            Ok(r) => Ok(Some(r)),
+            Err(tok) => {
+                self.unbump(tok);
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn match_keyword(&mut self, keyword: Keyword) -> CompileResult<bool> {
+        if self.token.kind == TokenKind::Keyword(keyword) {
+            self.bump()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn match_token(&mut self, token_kind: TokenKind) -> CompileResult<bool> {
+        if self.token.kind == token_kind {
+            self.bump()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn match_ident(&mut self) -> CompileResult<Option<Ident>> {
+        Ok(self.bump_if(|t| {
+            if let TokenKind::Ident(ident) = t {
+                Ok(ident)
+            } else {
+                Err(t)
+            }
+        }))
+    }
+
+    fn expect_token(&mut self, token_kind: TokenKind) -> CompileResult<()> {
+        if self.token.kind == token_kind {
+            Ok(())
+        } else {
+            err!(next, "expected token {:#?}, got {:#?}", token_kind, self.token)
+        }
+    }
+
+    fn expect_keyword(&mut self, keyword: Keyword) -> CompileResult<()> {
+        if self.token.kind == TokenKind::Keyword(keyword) {
+            Ok(())
+        } else {
+            err!(next, "expected keyword {:#?}, got {:#?}", keyword, self.token)
+        }
+    }
+
+    fn expect_ident(&mut self) -> CompileResult<Ident> {
+        self.match_ident()?.ok_or(format!("expected identifier, got {:#?}", self.token))
+    }
+
+    fn expect_string_lit(&mut self) -> CompileResult<String> {
+        self.bump_if(|t| {
+            if let TokenKind::Ident(ident) = t {
+                Ok(ident)
+            } else {
+                Err(t)
+            }
+        }).ok_or(format!("expected string literal, got {:#?}", self.token))
     }
 }
 

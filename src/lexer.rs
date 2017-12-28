@@ -190,6 +190,8 @@ pub enum TokenKind {
     Ident(Ident),
     Integer(i64),
     StrLit(String),
+
+    Eof,
 }
 
 impl TokenKind {
@@ -279,14 +281,8 @@ fn is_ident_tail(c: char) -> bool { c.is_alphanumeric() || c == '_' }
 
 fn is_number_head(c: char) -> bool { c.is_numeric() }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct LexerCheckpoint {
-    offset: usize,
-}
-
 pub struct Lexer<'src> {
     iter: PeekableCharIndices<'src>,
-    peeked: Option<Option<Token>>,
     src: &'src str,
     insert_semicolon: bool,
 }
@@ -295,7 +291,6 @@ impl<'src> Lexer<'src> {
     pub fn new<'a>(src: &'a str) -> Lexer<'a> {
         let mut lexer = Lexer {
             iter: PeekableCharIndices::new(src),
-            peeked: None,
             src,
             insert_semicolon: false,
         };
@@ -303,86 +298,13 @@ impl<'src> Lexer<'src> {
         lexer
     }
 
-    pub fn match_keyword(&mut self, keyword: Keyword) -> CompileResult<bool> {
-        Ok(if let Some(&Token { kind: TokenKind::Keyword(got_keyword), .. }) = self.peek()? {
-            if got_keyword == keyword {
-                self.peeked = None;
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        })
-    }
-
-    pub fn match_token(&mut self, token_kind: TokenKind) -> CompileResult<bool> {
-        Ok(if self.peek()?.map_or(false, |t| t.kind == token_kind) {
-            self.peeked = None;
-            true
-        } else {
-            false
-        })
-    }
-
-    pub fn match_ident(&mut self) -> CompileResult<Option<Ident>> {
-        let next = self.next()?;
-        match next {
-            Some(Token { kind: TokenKind::Ident(ident), .. }) => Ok(Some(ident)),
-            other => {
-                self.unget(other);
-                Ok(None)
-            }
-        }
-    }
-
-    pub fn expect_token(&mut self, token_kind: TokenKind) -> CompileResult<()> {
-        let next = self.next()?;
-        if next.as_ref().map_or(false, |t| t.kind == token_kind) {
-            Ok(())
-        } else {
-            err!(next, "expected token {:#?}, got {:#?}", token_kind, next)
-        }
-    }
-
-    pub fn expect_keyword(&mut self, keyword: Keyword) -> CompileResult<()> {
-        let next = self.next()?;
-        if next.as_ref().map_or(false, |t| t.kind == TokenKind::Keyword(keyword)) {
-            Ok(())
-        } else {
-            err!(next, "expected keyword {:#?}, got {:#?}", keyword, next)
-        }
-    }
-
-    pub fn expect_ident(&mut self) -> CompileResult<Ident> {
-        let next = self.next()?;
-        if let Some(Token { kind: TokenKind::Ident(ident), ..}) = next {
-            Ok(ident)
-        } else {
-            err!(next, "expected identifier, got {:#?}", next.map(|t| t.kind))
-        }
-    }
-
-    pub fn expect_string_lit(&mut self) -> CompileResult<String> {
-        let next = self.next()?;
-        if let Some(Token { kind: TokenKind::StrLit(string), ..}) = next {
-            Ok(string)
-        } else {
-            err!(next, "expected string literal, got {:#?}", next.map(|t| t.kind))
-        }
-    }
-
-    pub fn next(&mut self) -> CompileResult<Option<Token>> {
-        if let Some(token) = self.peeked.take() {
-            return Ok(token)
-        }
-
+    pub fn next(&mut self) -> CompileResult<Token> {
         if self.insert_semicolon {
             self.insert_semicolon = false;
-            return Ok(Some(Token {
+            return Ok(Token {
                 kind: TokenKind::Semicolon,
                 span: Span::new(self.offset(), self.offset()),
-            }));
+            });
         }
 
         let (start_index, ch) = match self.iter.next() {
@@ -608,7 +530,7 @@ impl<'src> Lexer<'src> {
 
         self.insert_semicolon = passed_line && !semicolon_follows && semicolon_should_follow;
 
-        Ok(Some(Token { kind, span }))
+        Ok(Token { kind, span })
     }
 
     fn eat_whitespace(&mut self) -> bool {
@@ -634,22 +556,6 @@ impl<'src> Lexer<'src> {
         passed_line
     }
 
-    pub fn peek(&mut self) -> CompileResult<Option<&Token>> {
-        if self.peeked.is_none() {
-            self.peeked = Some(self.next()?);
-        }
-        Ok(self.peeked.as_ref().unwrap().as_ref())
-    }
-
-    pub fn peek_match_token(&mut self, token_kind: TokenKind) -> CompileResult<bool> {
-        Ok(self.peek()?.map(|t| &t.kind) == Some(&token_kind))
-    }
-
-    pub fn unget(&mut self, token: Option<Token>) {
-        assert!(self.peeked == None);
-        self.peeked = Some(token);
-    }
-
     pub fn offset(&self) -> usize {
         if let Some(Some(Token { span, .. })) = self.peeked {
             span.start as usize
@@ -658,16 +564,5 @@ impl<'src> Lexer<'src> {
             // use the current offset
             self.iter.offset()
         }
-    }
-
-    pub fn checkpoint(&self) -> LexerCheckpoint {
-        LexerCheckpoint {
-            offset: self.offset(),
-        }
-    }
-
-    pub fn backtrack(&mut self, checkpoint: LexerCheckpoint) {
-        self.peeked = None;
-        self.iter.set_offset(checkpoint.offset);
     }
 }
