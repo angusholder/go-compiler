@@ -307,7 +307,7 @@ pub struct ParameterDecl {
 pub enum FuncResult {
     None,
     One(P<Type>),
-    Many(ParameterDecl),
+    Many(List<ParameterDecl>),
 }
 
 #[derive(Debug)]

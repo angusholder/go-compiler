@@ -4,7 +4,7 @@ mod lexer;
 mod ast;
 mod parser;
 
-use lexer::Lexer;
+use parser::Parser;
 
 fn main() {
     let src = r#"
@@ -16,14 +16,13 @@ func main() {
     fmt.Printf("hello, world\n")
 }
 "#;
-    let mut lexer = Lexer::new(src);
+    let mut parser = Parser::new(src);
 
     loop {
-        match lexer.next() {
-            Ok(Some(token)) => {
-                println!("{}", token.kind.fmt(src));
+        match parser.parse() {
+            Ok(source_file) => {
+                println!("{:#?}", source_file);
             }
-            Ok(None) => break,
             Err(e) => {
                 println!("ERROR: {}", e);
                 break;
