@@ -176,7 +176,7 @@ impl<'src> Parser<'src> {
                 if self.lexer.match_token(TokenKind::RBracket)? {
                     P(Type::TypeLit(TypeLit::SliceType(self.parse_type()?)))
                 } else {
-                    let length = self.parse_expr()?;
+                    let length = P(self.parse_expr()?);
                     self.lexer.expect_token(TokenKind::RBracket)?;
                     let elem_ty = self.parse_type()?;
                     P(Type::TypeLit(TypeLit::ArrayType { length, elem_ty }))
@@ -254,25 +254,25 @@ const BP_MUL: i32 = 50;        // *  /  %  <<  >>  &  &^
 const BP_UNARY: i32 = 60;      // + - ! ^ * & <-
 const BP_ACCESSOR: i32 = 70;   // a.b a[b] a[b:c] a.(type) f(a, b) []type(a)
 
-type NullDenotation = fn(p: &mut Parser, token: Token, bp: i32) -> CompileResult<P<Expr>>;
-type LeftDenotation = fn(p: &mut Parser, token: Token, left: P<Expr>, rbp: i32) -> CompileResult<P<Expr>>;
+type NullDenotation = fn(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr>;
+type LeftDenotation = fn(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> CompileResult<Expr>;
 
-fn null_constant(_p: &mut Parser, token: Token, _bp: i32) -> CompileResult<P<Expr>> {
-    Ok(P(Expr::Literal(match token.kind {
+fn null_constant(_p: &mut Parser, token: Token, _bp: i32) -> CompileResult<Expr> {
+    Ok(Expr::Literal(match token.kind {
         TokenKind::Ident(i) => Literal::Ident(i),
         TokenKind::Integer(n) => Literal::Int(n),
         TokenKind::StrLit(s) => Literal::String(s),
         _ => unreachable!(),
-    })))
+    }))
 }
 
-fn null_paren(p: &mut Parser, _token: Token, bp: i32) -> CompileResult<P<Expr>> {
+fn null_paren(p: &mut Parser, _token: Token, bp: i32) -> CompileResult<Expr> {
     let result = p.parse_expr_until(bp)?;
     p.lexer.expect_token(TokenKind::RParen)?;
     Ok(result)
 }
 
-fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<P<Expr>> {
+fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr> {
     let child = p.parse_expr_until(bp)?;
     let op = match token.kind {
         TokenKind::Plus => UnaryOp::Plus,
@@ -285,44 +285,49 @@ fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<P<Expr
         _ => unreachable!(),
     };
 
-    Ok(P(Expr::Unary { op, child }))
+    Ok(Expr::Unary { op, child: P(child) })
 }
 
-fn left_index(p: &mut Parser, token: Token, left: P<Expr>, _rbp: i32) -> CompileResult<P<Expr>> {
+fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
     let right = p.parse_opt_expr()?;
     if p.lexer.match_token(TokenKind::Colon)? {
         let start = right;
         let end = p.parse_opt_expr()?;
-        let mut max: Option<P<Expr>> = None;
+        let mut max: Option<Expr> = None;
         if p.lexer.match_token(TokenKind::Colon)? {
             max = p.parse_opt_expr()?;
         }
         p.lexer.expect_token(TokenKind::RBracket)?;
-        Ok(P(Expr::Slice { left, start, end, max }))
+        Ok(Expr::Slice {
+            left: P(left),
+            start: start.map(P),
+            end: end.map(P),
+            max: max.map(P)
+        })
     } else {
         if let Some(right) = right {
             p.lexer.expect_token(TokenKind::RBracket)?;
-            Ok(P(Expr::Index { left, right }))
+            Ok(Expr::Index { left: P(left), right: P(right) })
         } else {
             err!(token, "expected expression")
         }
     }
 }
 
-fn left_selector(p: &mut Parser, _token: Token, left: P<Expr>, _rbp: i32) -> CompileResult<P<Expr>> {
+fn left_selector(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
     if p.lexer.match_token(TokenKind::LParen)? {
         // Type Assertion
         let ty = p.parse_type()?;
         p.lexer.expect_token(TokenKind::RParen)?;
-        Ok(P(Expr::TypeAssertion { left, ty }))
+        Ok(Expr::TypeAssertion { left: P(left), ty })
     } else {
         // Field Access
         let field_name = p.lexer.expect_ident()?;
-        Ok(P(Expr::Selector { left, field_name }))
+        Ok(Expr::Selector { left: P(left), field_name })
     }
 }
 
-fn left_binary_op(p: &mut Parser, token: Token, left: P<Expr>, rbp: i32) -> CompileResult<P<Expr>> {
+fn left_binary_op(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> CompileResult<Expr> {
     let op = match token.kind {
         TokenKind::Plus => BinaryOp::Add,
         TokenKind::Minus => BinaryOp::Sub,
@@ -352,16 +357,16 @@ fn left_binary_op(p: &mut Parser, token: Token, left: P<Expr>, rbp: i32) -> Comp
 
     let right = p.parse_expr_until(rbp)?;
 
-    Ok(P(Expr::Binary { op, left, right }))
+    Ok(Expr::Binary { op, left: P(left), right: P(right) })
 }
 
-fn left_func_call(p: &mut Parser, _token: Token, left: P<Expr>, _rbp: i32) -> CompileResult<P<Expr>> {
+fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
     let mut args = Vec::new();
     let mut ty: Option<P<Type>> = None;
     let mut ellipsis = false;
 
     if !p.lexer.match_token(TokenKind::RParen)? {
-        let arg1_is_type = if let Expr::Literal(Literal::Ident(ref ident)) = *left {
+        let arg1_is_type = if let Expr::Literal(Literal::Ident(ref ident)) = left {
             let s: &str = ident.as_ref();
             s == "make" || s == "new"
         } else {
@@ -373,7 +378,7 @@ fn left_func_call(p: &mut Parser, _token: Token, left: P<Expr>, _rbp: i32) -> Co
         }
 
         while !p.lexer.match_token(TokenKind::RParen)? {
-            args.push(*p.parse_expr_until(BP_COMMA)?);
+            args.push(p.parse_expr_until(BP_COMMA)?);
             if !p.lexer.match_token(TokenKind::Comma)? {
                 p.lexer.expect_token(TokenKind::RParen)?;
                 break;
@@ -387,16 +392,16 @@ fn left_func_call(p: &mut Parser, _token: Token, left: P<Expr>, _rbp: i32) -> Co
         }
     };
 
-    Ok(P(Expr::Call {
-        left,
+    Ok(Expr::Call {
+        left: P(left),
         exprs: args.into(),
         ty,
         ellipsis
-    }))
+    })
 }
 
 impl<'a> Parser<'a> {
-    fn parse_null(&mut self, token: Token) -> CompileResult<Result<P<Expr>, Token>> {
+    fn parse_null(&mut self, token: Token) -> CompileResult<Result<Expr, Token>> {
         use self::TokenKind::*;
 
         let (nud, bp): (NullDenotation, i32) = match token.kind {
@@ -417,7 +422,7 @@ impl<'a> Parser<'a> {
         nud(self, token, bp).map(|e| Ok(e))
     }
 
-    fn parse_left(&mut self, min_rbp: i32, node: Box<Expr>) -> CompileResult<P<Expr>> {
+    fn parse_left(&mut self, min_rbp: i32, node: Expr) -> CompileResult<Expr> {
         use self::TokenKind::*;
 
         let (led, bp): (LeftDenotation, i32) = {
@@ -462,7 +467,7 @@ impl<'a> Parser<'a> {
         self.parse_left(min_rbp, node)
     }
 
-    fn parse_expr_until(&mut self, min_rbp: i32) -> CompileResult<P<Expr>> {
+    fn parse_expr_until(&mut self, min_rbp: i32) -> CompileResult<Expr> {
         let token = if let Some(token) = self.lexer.next()? {
             token
         } else {
@@ -478,7 +483,7 @@ impl<'a> Parser<'a> {
         self.parse_left(min_rbp, node)
     }
 
-    fn parse_opt_expr_until(&mut self, min_rbp: i32) -> CompileResult<Option<P<Expr>>> {
+    fn parse_opt_expr_until(&mut self, min_rbp: i32) -> CompileResult<Option<Expr>> {
         let token = if let Some(token) = self.lexer.next()? {
             token
         } else {
@@ -495,11 +500,11 @@ impl<'a> Parser<'a> {
         self.parse_left(min_rbp, node).map(|e| Some(e))
     }
 
-    pub fn parse_expr(&mut self) -> CompileResult<P<Expr>> {
+    pub fn parse_expr(&mut self) -> CompileResult<Expr> {
         self.parse_expr_until(0)
     }
 
-    pub fn parse_opt_expr(&mut self) -> CompileResult<Option<P<Expr>>> {
+    pub fn parse_opt_expr(&mut self) -> CompileResult<Option<Expr>> {
         self.parse_opt_expr_until(0)
     }
 }
@@ -561,7 +566,7 @@ impl<'src> Parser<'src> {
         if pre_stmt.is_some() {
             self.expect_terminal()?;
         }
-        let cond = self.parse_expr()?;
+        let cond = P(self.parse_expr()?);
         self.lexer.expect_token(TokenKind::LBrace)?;
         let then = self.parse_block()?;
 
@@ -598,12 +603,12 @@ impl<'src> Parser<'src> {
                 Stmt::Declaration(self.parse_decl()?)
             }
             Keyword(Go) => {
-                Stmt::Go(self.parse_expr()?)
+                Stmt::Go(P(self.parse_expr()?))
             }
             Keyword(Return) => {
                 let mut params = Vec::new();
                 while let Some(expr) = self.parse_opt_expr()? {
-                    params.push(*expr);
+                    params.push(expr);
                     if !self.lexer.match_token(TokenKind::Comma)? {
                         break;
                     }
@@ -635,7 +640,7 @@ impl<'src> Parser<'src> {
                 Stmt::For(self.parse_for_stmt()?)
             }
             Keyword(Defer) => {
-                Stmt::Defer(self.parse_expr()?)
+                Stmt::Defer(P(self.parse_expr()?))
             }
             TokenKind::LBrace => {
                 Stmt::Block(self.parse_block()?)
@@ -658,27 +663,27 @@ impl<'src> Parser<'src> {
 
         let simple_stmt = match next_token.map(|t| t.kind) {
             None => {
-                SimpleStmt::Expr(expr)
+                SimpleStmt::Expr(P(expr))
             }
             Some(TokenKind::SendReceive) => {
-                let channel = expr;
-                let expr = self.parse_expr()?;
+                let channel = P(expr);
+                let expr = P(self.parse_expr()?);
                 SimpleStmt::Send { channel, expr }
             }
             Some(TokenKind::Increment) => {
-                SimpleStmt::Increment(expr)
+                SimpleStmt::Increment(P(expr))
             }
             Some(TokenKind::Decrement) => {
-                SimpleStmt::Decrement(expr)
+                SimpleStmt::Decrement(P(expr))
             }
             Some(TokenKind::Assign(_)) | Some(TokenKind::ColonEq) => {
                 // Replay the assignment operator
                 self.lexer.backtrack(checkpoint);
-                self.parse_assignment(vec![*expr])?
+                self.parse_assignment(vec![expr])?
             }
             Some(TokenKind::Comma) => {
-                let mut left = self.parse_comma_separated_list(|p| p.parse_expr().map(|e| *e))?;
-                left.insert(0, *expr);
+                let mut left = self.parse_comma_separated_list(|p| p.parse_expr())?;
+                left.insert(0, expr);
 
                 self.parse_assignment(left)?
             }
@@ -691,7 +696,7 @@ impl<'src> Parser<'src> {
     fn parse_assignment(&mut self, left: Vec<Expr>) -> CompileResult<SimpleStmt> {
         match self.lexer.next()? {
             Some(Token { kind: TokenKind::Assign(op), .. }) => {
-                let right = self.parse_comma_separated_list(|p| p.parse_expr().map(|e| *e))?;
+                let right = self.parse_comma_separated_list(|p| p.parse_expr())?;
                 if left.len() != right.len() {
                     let span = Span::new(self.lexer.offset(), self.lexer.offset());
                     return err!(span, "assignment count mismatch: {} = {}",
@@ -700,7 +705,7 @@ impl<'src> Parser<'src> {
                 Ok(SimpleStmt::Assignment { left: left.into(), right: right.into(), op })
             }
             Some(Token { kind: TokenKind::ColonEq, .. }) => {
-                let exprs = self.parse_comma_separated_list(|p| p.parse_expr().map(|e| *e))?.into();
+                let exprs = self.parse_comma_separated_list(|p| p.parse_expr())?.into();
                 let idents = left.into_iter().map(|e| {
                     if let Expr::Literal(Literal::Ident(ident)) = e {
                         Ok(ident)
