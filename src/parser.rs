@@ -519,25 +519,6 @@ impl<'src> Parser<'src> {
         self.lexer.expect_token(TokenKind::Semicolon)
     }
 
-    fn expect_terminal_or_end_scope(&mut self) -> CompileResult<bool> {
-        let token = self.lexer.next()?;
-        match token.map(|t| t.kind) {
-            Some(TokenKind::Semicolon) => {
-
-            }
-            Some(TokenKind::RBrace) | Some(TokenKind::RParen) => {
-
-            }
-            Some(other) => {
-
-            }
-            None => {
-
-            }
-        }
-        unimplemented!()
-    }
-
     fn parse_block(&mut self) -> CompileResult<Block> {
         let mut stmts = Vec::new();
         while !self.lexer.match_token(TokenKind::RBrace)? {
