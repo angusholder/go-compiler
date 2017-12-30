@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::mem;
 
 use ast::*;
-use lexer::{ Lexer, Token, TokenKind, Keyword };
+use lexer::{ Lexer, Token, TokenKind, Keyword, AssignOp };
 use utils::ptr::{ List, P };
 use utils::result::{ CompileResult, Span };
 
@@ -677,7 +677,7 @@ impl<'src> Parser<'src> {
     fn parse_var_spec(&mut self) -> CompileResult<VarSpec> {
         let idents = self.parse_comma_separated_list(Parser::expect_ident)?.into();
         let ty = self.parse_opt_type()?;
-        let exprs = if self.match_token(TokenKind::Equals)? {
+        let exprs = if self.match_token(TokenKind::Assign(AssignOp::None))? {
             Some(self.parse_comma_separated_list(Parser::parse_expr)?.into())
         } else {
             None
@@ -688,7 +688,7 @@ impl<'src> Parser<'src> {
 
     fn parse_type_spec(&mut self) -> CompileResult<TypeSpec> {
         let ident = self.expect_ident()?;
-        let kind = if self.match_token(TokenKind::Equals)? {
+        let kind = if self.match_token(TokenKind::Assign(AssignOp::None))? {
             TypeSpecKind::AliasDecl
         } else {
             TypeSpecKind::TypeDef
@@ -701,7 +701,7 @@ impl<'src> Parser<'src> {
     fn parse_const_spec(&mut self) -> CompileResult<ConstSpec> {
         let idents = self.parse_comma_separated_list(Parser::expect_ident)?.into();
         let ty = self.parse_opt_type()?;
-        let exprs = if self.match_token(TokenKind::Equals)? {
+        let exprs = if self.match_token(TokenKind::Assign(AssignOp::None))? {
             Some(self.parse_comma_separated_list(Parser::parse_expr)?.into())
         } else {
             None
