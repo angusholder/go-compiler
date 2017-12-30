@@ -285,6 +285,7 @@ pub struct Lexer<'src> {
     iter: PeekableCharIndices<'src>,
     src: &'src str,
     insert_semicolon: bool,
+    reached_eof: bool,
 }
 
 impl<'src> Lexer<'src> {
@@ -293,6 +294,7 @@ impl<'src> Lexer<'src> {
             iter: PeekableCharIndices::new(src),
             src,
             insert_semicolon: false,
+            reached_eof: false,
         };
         lexer.eat_whitespace();
         lexer
@@ -309,7 +311,16 @@ impl<'src> Lexer<'src> {
 
         let (start_index, ch) = match self.iter.next() {
             Some(next) => next,
-            None => return Ok(None),
+            None => {
+                if self.reached_eof {
+                    unimplemented!()
+                }
+                self.reached_eof = true;
+                return Ok(Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(self.offset(), self.offset()),
+                })
+            }
         };
 
         use self::TokenKind::*;

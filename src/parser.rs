@@ -9,14 +9,14 @@ use utils::result::{ CompileResult, Span };
 pub struct Parser<'src> {
     lexer: Lexer<'src>,
     token: Token,
-    lookahead: VecDeque<Token>,
+    lookahead_stack: VecDeque<Token>,
 }
 
 impl<'src> Parser<'src> {
     pub fn new(src: &'src str) -> Parser<'src> {
         Parser {
             lexer: Lexer::new(src),
-            lookahead: VecDeque::new(),
+            lookahead_stack: VecDeque::new(),
             token: Token {
                 kind: TokenKind::Eof,
                 span: Span::INVALID,
@@ -25,12 +25,12 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse(&mut self) -> CompileResult<SourceFile> {
-        self.lexer.expect_keyword(Keyword::Package)?;
-        let package_name = self.lexer.expect_ident()?;
+        self.expect_keyword(Keyword::Package)?;
+        let package_name = self.expect_ident()?;
         self.expect_terminal()?;
 
         let mut imports: Vec<ImportSpec> = Vec::new();
-        while self.lexer.match_keyword(Keyword::Import)? {
+        while self.expect_keyword(Keyword::Import)? {
             imports.extend(self.parse_import_decl()?.decls);
         }
 
@@ -61,26 +61,26 @@ impl<'src> Parser<'src> {
             Ok(f(&self.token))
         } else {
             let offset = dist - 1;
-            while self.lookahead.len() < offset {
+            while self.lookahead_stack.len() < offset {
                 let token = self.lexer.next()?;
-                self.lookahead.push(token);
+                self.lookahead_stack.push(token);
             }
-            Ok(f(&self.lookahead[offset]))
+            Ok(f(&self.lookahead_stack[offset]))
         }
     }
 
     fn bump(&mut self) -> CompileResult<Token> {
-        if let Some(token) = self.lookahead.pop_front() {
-            Ok(mem::replace(&mut self.token, token))
+        let token = if let Some(token) = self.lookahead_stack.pop_front() {
+            token
         } else {
-            let token = self.lexer.next()?;
-            Ok(mem::replace(&mut self.token, token))
-        }
+            self.lexer.next()?
+        };
+        Ok(mem::replace(&mut self.token, token))
     }
 
     fn unbump(&mut self, token: Token) {
         let next = mem::replace(&mut self.token, token);
-        self.lookahead.push_front(next);
+        self.lookahead_stack.push_front(next);
     }
 
     fn bump_if<R, F>(&mut self, f: F) -> CompileResult<Option<R>>
@@ -125,7 +125,7 @@ impl<'src> Parser<'src> {
 
     fn expect_token(&mut self, token_kind: TokenKind) -> CompileResult<()> {
         if self.token.kind == token_kind {
-            Ok(())
+            self.bump()
         } else {
             err!(next, "expected token {:#?}, got {:#?}", token_kind, self.token)
         }
@@ -133,7 +133,7 @@ impl<'src> Parser<'src> {
 
     fn expect_keyword(&mut self, keyword: Keyword) -> CompileResult<()> {
         if self.token.kind == TokenKind::Keyword(keyword) {
-            Ok(())
+            self.bump()
         } else {
             err!(next, "expected keyword {:#?}, got {:#?}", keyword, self.token)
         }
@@ -157,8 +157,8 @@ impl<'src> Parser<'src> {
 impl<'src> Parser<'src> {
     fn parse_import_decl(&mut self) -> CompileResult<ImportDecl> {
         let mut specs = Vec::new();
-        if self.lexer.match_token(TokenKind::LParen)? {
-            while !self.lexer.match_token(TokenKind::RParen)? {
+        if self.expect_token(TokenKind::LParen)? {
+            while !self.expect_token(TokenKind::RParen)? {
                 specs.push(self.parse_import_spec()?);
                 self.expect_terminal()?;
             }
@@ -173,15 +173,15 @@ impl<'src> Parser<'src> {
 
     fn parse_import_spec(&mut self) -> CompileResult<ImportSpec> {
         let alias: ImportAlias;
-        if self.lexer.match_token(TokenKind::Dot)? {
+        if self.expect_token(TokenKind::Dot)? {
             alias = ImportAlias::Splat;
-        } else if let Some(ident) = self.lexer.match_ident()? {
+        } else if let Some(ident) = self.expect_ident()? {
             alias = ImportAlias::Name(ident);
         } else {
             alias = ImportAlias::None;
         }
 
-        let path = self.lexer.expect_string_lit()?;
+        let path = self.expect_string_lit()?;
 
         Ok(ImportSpec { alias, path })
     }
@@ -189,19 +189,15 @@ impl<'src> Parser<'src> {
     fn parse_top_level_decl(&mut self) -> CompileResult<Option<TopLevelDecl>> {
         use self::Keyword::*;
 
-        let token = if let Some(token) = self.lexer.next()? {
-            token
-        } else {
-            return Ok(None);
-        };
-
-        match token.kind {
+        match self.token.kind {
             TokenKind::Keyword(Func) => {
+                self.bump()?;
                 Ok(Some(TopLevelDecl::Function(self.parse_func()?)))
             }
             TokenKind::Keyword(Const) | TokenKind::Keyword(Type) | TokenKind::Keyword(Var) => {
                 unimplemented!()
             }
+            TokenKind::Eof => Ok(None),
             _ => {
                 err!(token, "expected top level declaration (const/type/var/func), found {:#?}",
                     token)
@@ -212,17 +208,17 @@ impl<'src> Parser<'src> {
     fn parse_parameter_decl(&mut self) -> CompileResult<Option<ParameterDecl>> {
         let idents: Option<List<Ident>>;
 
-        if let Some(ident) = self.lexer.match_ident()? {
+        if let Some(ident) = self.expect_ident()? {
             let mut list = vec![ident];
-            while self.lexer.match_token(TokenKind::Comma)? {
-                list.push(self.lexer.expect_ident()?);
+            while self.expect_token(TokenKind::Comma)? {
+                list.push(self.expect_ident()?);
             }
             idents = Some(list.into());
         } else {
             idents = None;
         }
 
-        let ellipsis = self.lexer.match_token(TokenKind::Ellipsis)?;
+        let ellipsis = self.expect_token(TokenKind::Ellipsis)?;
         let ty = self.parse_opt_type()?;
 
         if let Some(ty) = ty {
@@ -237,10 +233,10 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_func(&mut self) -> CompileResult<FunctionDecl> {
-        let name = self.lexer.expect_ident()?;
-        self.lexer.expect_token(TokenKind::LParen)?;
+        let name = self.expect_ident()?;
+        self.expect_token(TokenKind::LParen)?;
         let sig = self.parse_signature()?;
-        let body = if self.lexer.match_token(TokenKind::LBrace)? {
+        let body = if self.expect_token(TokenKind::LBrace)? {
             Some(self.parse_block()?)
         } else {
             None
@@ -251,15 +247,15 @@ impl<'src> Parser<'src> {
     fn parse_parameter_list(&mut self) -> CompileResult<List<ParameterDecl>> {
         let mut params = Vec::new();
 
-        if !self.lexer.match_token(TokenKind::RParen)? {
+        if !self.expect_token(TokenKind::RParen)? {
             while let Some(param) = self.parse_parameter_decl()? {
                 params.push(param);
-                if !self.lexer.match_token(TokenKind::Comma)? {
-                    self.lexer.expect_token(TokenKind::RParen)?;
+                if !self.expect_token(TokenKind::Comma)? {
+                    self.expect_token(TokenKind::RParen)?;
                     break;
                 }
 
-                if self.lexer.match_token(TokenKind::RParen)? {
+                if self.expect_token(TokenKind::RParen)? {
                     break;
                 }
             }
@@ -271,7 +267,7 @@ impl<'src> Parser<'src> {
     fn parse_signature(&mut self) -> CompileResult<Signature> {
         let params = self.parse_parameter_list()?;
 
-        let result = if self.lexer.match_token(TokenKind::LParen)? {
+        let result = if self.expect_token(TokenKind::LParen)? {
             FuncResult::Many(self.parse_parameter_list()?)
         } else if let Some(ty) = self.parse_opt_type()? {
             FuncResult::One(ty)
@@ -282,11 +278,12 @@ impl<'src> Parser<'src> {
         Ok(Signature { params, result })
     }
 
-    fn parse_opt_type_with_token(&mut self, token: Token) -> CompileResult<Option<P<Type>>> {
-        Ok(Some(match token.kind {
+    fn parse_opt_type(&mut self) -> CompileResult<Option<P<Type>>> {
+        let token = self.bump()?;
+        let ty = match token.kind {
             TokenKind::Ident(package_or_ident) => {
-                if self.lexer.match_token(TokenKind::Dot)? {
-                    let ident = self.lexer.expect_ident()?;
+                if self.expect_token(TokenKind::Dot)? {
+                    let ident = self.expect_ident()?;
                     P(Type::TypeName { package: Some(package_or_ident), ident, })
                 } else {
                     P(Type::TypeName { package: None, ident: package_or_ident })
@@ -294,15 +291,15 @@ impl<'src> Parser<'src> {
             }
             TokenKind::LParen => {
                 let ty = self.parse_type()?;
-                self.lexer.expect_token(TokenKind::RParen)?;
+                self.expect_token(TokenKind::RParen)?;
                 ty
             }
             TokenKind::LBracket => {
-                if self.lexer.match_token(TokenKind::RBracket)? {
+                if self.expect_token(TokenKind::RBracket)? {
                     P(Type::TypeLit(TypeLit::SliceType(self.parse_type()?)))
                 } else {
                     let length = P(self.parse_expr()?);
-                    self.lexer.expect_token(TokenKind::RBracket)?;
+                    self.expect_token(TokenKind::RBracket)?;
                     let elem_ty = self.parse_type()?;
                     P(Type::TypeLit(TypeLit::ArrayType { length, elem_ty }))
                 }
@@ -314,18 +311,18 @@ impl<'src> Parser<'src> {
                 P(Type::TypeLit(TypeLit::FunctionType(self.parse_signature()?)))
             }
             TokenKind::Keyword(Keyword::Map) => {
-                self.lexer.expect_token(TokenKind::LBracket)?;
+                self.expect_token(TokenKind::LBracket)?;
                 let key_ty = self.parse_type()?;
-                self.lexer.expect_token(TokenKind::RBracket)?;
+                self.expect_token(TokenKind::RBracket)?;
                 let elem_ty = self.parse_type()?;
                 P(Type::TypeLit(TypeLit::MapType { key_ty, elem_ty }))
             }
             token @ TokenKind::Keyword(Keyword::Chan) | token @ TokenKind::SendReceive => {
                 let direction: ChannelDirection;
                 if token == TokenKind::SendReceive {
-                    self.lexer.expect_keyword(Keyword::Chan)?;
+                    self.expect_keyword(Keyword::Chan)?;
                     direction = ChannelDirection::Receive;
-                } else if self.lexer.match_token(TokenKind::SendReceive)? {
+                } else if self.expect_token(TokenKind::SendReceive)? {
                     direction = ChannelDirection::Send;
                 } else {
                     direction = ChannelDirection::BiDirectional;
@@ -339,27 +336,18 @@ impl<'src> Parser<'src> {
                 unimplemented!()
             }
             other => {
-                self.lexer.unget(Some(Token { kind: other, span: token.span }));
+                self.unbump(token);
                 return Ok(None);
             }
-        }))
-    }
-
-    fn parse_opt_type(&mut self) -> CompileResult<Option<P<Type>>> {
-        let token = if let Some(token) = self.lexer.next()? {
-            token
-        } else {
-            return Ok(None);
         };
-        self.parse_opt_type_with_token(token)
+        Ok(Some(ty))
     }
 
     fn parse_type(&mut self) -> CompileResult<P<Type>> {
         if let Some(ty) = self.parse_opt_type()? {
             Ok(ty)
         } else {
-            let next = self.lexer.next()?;
-            err!(next, "expected type, got {:#?}", next)
+            err!(self.token, "expected type, got {:#?}", self.token)
         }
     }
 }
@@ -526,10 +514,10 @@ fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> Compi
 }
 
 impl<'a> Parser<'a> {
-    fn parse_null(&mut self, token: Token) -> CompileResult<Result<Expr, Token>> {
+    fn parse_null(&mut self) -> CompileResult<Option<Expr>> {
         use self::TokenKind::*;
 
-        let (nud, bp): (NullDenotation, i32) = match token.kind {
+        let (nud, bp): (NullDenotation, i32) = match self.token.kind {
             Ident(_) | Integer(_) | StrLit(_) => {
                 (null_constant, -1)
             }
@@ -540,7 +528,7 @@ impl<'a> Parser<'a> {
                 (null_prefix_op, BP_UNARY)
             }
             _ => {
-                return Ok(Err(token));
+                return Ok(None);
             }
         };
 
@@ -550,29 +538,21 @@ impl<'a> Parser<'a> {
     fn parse_left(&mut self, min_rbp: i32, node: Expr) -> CompileResult<Expr> {
         use self::TokenKind::*;
 
-        let (led, bp): (LeftDenotation, i32) = {
-            let token = if let Some(token) = self.lexer.peek()? {
-                token
-            } else {
-                return Ok(node); // No tokens left, terminate expression.
-            };
+        let (led, bp): (LeftDenotation, i32) = match self.token.kind {
+            LParen => (left_func_call, BP_ACCESSOR),
+            LBracket => (left_index, BP_ACCESSOR),
+            Dot => (left_selector, BP_ACCESSOR),
 
-            match token.kind {
-                LParen => (left_func_call, BP_ACCESSOR),
-                LBracket => (left_index, BP_ACCESSOR),
-                Dot => (left_selector, BP_ACCESSOR),
+            LogOr => (left_binary_op, BP_LOGOR),
+            LogAnd => (left_binary_op, BP_LOGAND),
+            Equals | NotEqual | Less | LessOrEqual | Greater | GreaterOrEqual => (left_binary_op, BP_COMPARISON),
+            Plus | Minus | Or | Caret => (left_binary_op, BP_ADD),
+            Star | Slash | Percent | LShift | RShift | And | AndNot => (left_binary_op, BP_MUL),
 
-                LogOr => (left_binary_op, BP_LOGOR),
-                LogAnd => (left_binary_op, BP_LOGAND),
-                Equals | NotEqual | Less | LessOrEqual | Greater | GreaterOrEqual => (left_binary_op, BP_COMPARISON),
-                Plus | Minus | Or | Caret => (left_binary_op, BP_ADD),
-                Star | Slash | Percent | LShift | RShift | And | AndNot => (left_binary_op, BP_MUL),
-
-                _ => {
-                    // This token cannot form part of the expression, so terminate
-                    // TODO: Are there any tokens that shouldn't terminate an expression error free?
-                    return Ok(node);
-                }
+            _ => {
+                // This token cannot form part of the expression, so terminate
+                // TODO: Are there any tokens that shouldn't terminate an expression error free?
+                return Ok(node);
             }
         };
 
@@ -580,43 +560,30 @@ impl<'a> Parser<'a> {
 
         if min_rbp >= lbp {
             // We've reached something that binds tighter than us, so terminate this iteration.
-            return Ok(node);
+            Ok(node)
+        } else {
+            // Grab the current token and jump to the next
+            let token = self.bump()?;
+
+            let node = led(self, token, node, rbp)?;
+
+            // Not done
+            self.parse_left(min_rbp, node)
         }
-
-        // The use of peek above has already ensured there's a token, so unwrap here.
-        let token = self.lexer.next()?.unwrap();
-
-        let node = led(self, token, node, rbp)?;
-
-        // Not done
-        self.parse_left(min_rbp, node)
     }
 
     fn parse_expr_until(&mut self, min_rbp: i32) -> CompileResult<Expr> {
-        let token = if let Some(token) = self.lexer.next()? {
-            token
+        let node = if let Some(node) = self.parse_null()? {
+            node
         } else {
-            let span = Span::new(self.lexer.offset(), self.lexer.offset());
-            return err!(span, "expected expression, found end of file");
-        };
-
-        let node = match self.parse_null(token)? {
-            Ok(node) => node,
-            Err(token) => return err!(token, "expected expression, found {:#?}", token),
+            return err!(self.token, "expected expression, found {:#?}", self.token)
         };
 
         self.parse_left(min_rbp, node)
     }
 
     fn parse_opt_expr_until(&mut self, min_rbp: i32) -> CompileResult<Option<Expr>> {
-        let token = if let Some(token) = self.lexer.next()? {
-            token
-        } else {
-            let span = Span::new(self.lexer.offset(), self.lexer.offset());
-            return err!(span, "expected expression, found end of file");
-        };
-
-        let node = if let Ok(node) = self.parse_null(token)? {
+        let node = if let Ok(node) = self.parse_null()? {
             node
         } else {
             return Ok(None);
@@ -641,22 +608,21 @@ impl<'a> Parser<'a> {
 //
 impl<'src> Parser<'src> {
     fn expect_terminal(&mut self) -> CompileResult<()> {
-        self.lexer.expect_token(TokenKind::Semicolon)
+        self.expect_token(TokenKind::Semicolon)
     }
 
     fn parse_block(&mut self) -> CompileResult<Block> {
         let mut stmts = Vec::new();
-        while !self.lexer.match_token(TokenKind::RBrace)? {
+        while !self.expect_token(TokenKind::RBrace)? {
             stmts.push(self.parse_stmt()?);
 
             // Semicolons can be omitted when a '}' follows, allowing succinct syntax such as:
             // if cond { do_thing() }
-            if !self.lexer.match_token(TokenKind::Semicolon)? {
-                if self.lexer.match_token(TokenKind::RBrace)? {
+            if !self.expect_token(TokenKind::Semicolon)? {
+                if self.expect_token(TokenKind::RBrace)? {
                     break;
                 } else {
-                    let token = self.lexer.next()?;
-                    return err!(token, "expected ';' or '}}', got {:#?}", token);
+                    return err!(self.token, "expected ';' or '}}', got {:#?}", self.token);
                 }
             }
         }
@@ -673,14 +639,14 @@ impl<'src> Parser<'src> {
             self.expect_terminal()?;
         }
         let cond = P(self.parse_expr()?);
-        self.lexer.expect_token(TokenKind::LBrace)?;
+        self.expect_token(TokenKind::LBrace)?;
         let then = self.parse_block()?;
 
-        let els = if self.lexer.match_keyword(Keyword::Else)? {
-            if self.lexer.match_keyword(Keyword::If)? {
+        let els = if self.expect_keyword(Keyword::Else)? {
+            if self.expect_keyword(Keyword::If)? {
                 IfStmtTail::ElseIf(P(self.parse_if_stmt()?))
             } else {
-                self.lexer.expect_token(TokenKind::LBrace)?;
+                self.expect_token(TokenKind::LBrace)?;
                 IfStmtTail::Block(self.parse_block()?)
             }
         } else {
@@ -699,13 +665,8 @@ impl<'src> Parser<'src> {
         use self::TokenKind::Keyword;
 
         let checkpoint = self.lexer.checkpoint();
-        let token = if let Some(token) = self.lexer.next()? {
-            token
-        } else {
-            return err!(Span::INVALID, "expected statement, got end of file");
-        };
 
-        let stmt = match token.kind {
+        let stmt = match self.token.kind {
             Keyword(Var) | Keyword(Type) | Keyword(Const) => {
                 Stmt::Declaration(self.parse_decl()?)
             }
@@ -716,20 +677,20 @@ impl<'src> Parser<'src> {
                 let mut params = Vec::new();
                 while let Some(expr) = self.parse_opt_expr()? {
                     params.push(expr);
-                    if !self.lexer.match_token(TokenKind::Comma)? {
+                    if !self.expect_token(TokenKind::Comma)? {
                         break;
                     }
                 }
                 Stmt::Return(params.into())
             }
             Keyword(Break) => {
-                Stmt::Break(self.lexer.match_ident()?)
+                Stmt::Break(self.expect_ident()?)
             }
             Keyword(Continue) => {
-                Stmt::Continue(self.lexer.match_ident()?)
+                Stmt::Continue(self.expect_ident()?)
             }
             Keyword(Goto) => {
-                Stmt::Goto(self.lexer.expect_ident()?)
+                Stmt::Goto(self.expect_ident()?)
             }
             Keyword(Fallthrough) => {
                 Stmt::Fallthrough
@@ -753,12 +714,11 @@ impl<'src> Parser<'src> {
                 Stmt::Block(self.parse_block()?)
             }
             _ => {
-                self.lexer.unget(Some(token));
+                self.unbump(token);
                 let simple = if let Some(simple) = self.parse_opt_simple_stmt()? {
                     simple
                 } else {
-                    let token = self.lexer.next()?;
-                    return err!(token, "expected statement, got {:#?}", token);
+                    return err!(self.token, "expected statement, got {:#?}", self.token);
                 };
                 Stmt::Simple(simple)
             }
@@ -856,7 +816,7 @@ impl<'src> Parser<'src> {
     {
         let mut result = vec![f(self)?];
 
-        while self.lexer.match_token(TokenKind::Comma)? {
+        while self.expect_token(TokenKind::Comma)? {
             result.push(f(self)?);
         }
 
