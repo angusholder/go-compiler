@@ -1,7 +1,10 @@
+use std::fmt;
 use std::ops::Deref;
 
 use lexer::AssignOp;
 use utils::ptr::{ P, List };
+use utils::result::Span;
+use utils::result::HasSpan;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UnaryOp {
@@ -59,7 +62,25 @@ pub enum Literal {
 }
 
 #[derive(Debug)]
-pub enum Expr {
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: Span,
+}
+
+impl Expr {
+    pub fn new(kind: ExprKind, span: Span) -> Expr {
+        Expr { kind, span }
+    }
+}
+
+impl HasSpan for Expr {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug)]
+pub enum ExprKind {
     Literal(Literal),
     Unary {
         child: P<Expr>,
@@ -105,9 +126,15 @@ pub enum Expr {
 pub type Label = Ident;
 pub type Block = List<Stmt>;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Ident {
     inner: Box<str>,
+}
+
+impl fmt::Debug for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Ident({})", self.inner)
+    }
 }
 
 impl From<String> for Ident {

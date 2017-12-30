@@ -4,6 +4,7 @@ use std::fmt::{ self, Display };
 use ast::Ident;
 use utils::chars::PeekableCharIndices;
 use utils::result::{ CompileResult, Span };
+use utils::result::HasSpan;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Keyword {
@@ -275,6 +276,18 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.kind)
+    }
+}
+
+impl HasSpan for Token {
+    fn span(&self) -> Span {
+        self.span
+    }
 }
 
 fn is_ident_head(c: char) -> bool { c.is_alphabetic() || c == '_' }

@@ -5,11 +5,13 @@ use ast::*;
 use lexer::{ Lexer, Token, TokenKind, Keyword, AssignOp };
 use utils::ptr::{ List, P };
 use utils::result::{ CompileResult, Span };
+use utils::result::HasSpan;
 
 pub struct Parser<'src> {
     lexer: Lexer<'src>,
     token: Token,
     lookahead_stack: VecDeque<Token>,
+    prev_span: Span,
 }
 
 impl<'src> Parser<'src> {
@@ -20,7 +22,8 @@ impl<'src> Parser<'src> {
             token: Token {
                 kind: TokenKind::Eof,
                 span: Span::INVALID,
-            }
+            },
+            prev_span: Span::INVALID,
         };
         parser.bump()?;
         Ok(parser)
@@ -42,7 +45,7 @@ impl<'src> Parser<'src> {
         }
 
         if self.token.kind != TokenKind::Eof {
-            return err!(self.token, "expected top level declaration or end of file, got {:#?}",
+            return err!(self.token, "expected top level declaration or end of file, got {}",
                 self.token);
         }
 
@@ -76,10 +79,12 @@ impl<'src> Parser<'src> {
         } else {
             self.lexer.next()?
         };
+        self.prev_span = token.span;
         Ok(mem::replace(&mut self.token, token))
     }
 
     fn unbump(&mut self, token: Token) {
+        self.prev_span = Span::INVALID;
         let next = mem::replace(&mut self.token, token);
         self.lookahead_stack.push_front(next);
     }
@@ -129,7 +134,7 @@ impl<'src> Parser<'src> {
             self.bump()?;
             Ok(())
         } else {
-            err!(self.token, "expected token {:#?}, got {:#?}", token_kind, self.token)
+            err!(self.token, "expected token {:#?}, got {}", token_kind, self.token)
         }
     }
 
@@ -138,40 +143,38 @@ impl<'src> Parser<'src> {
             self.bump()?;
             Ok(())
         } else {
-            err!(self.token, "expected keyword {:#?}, got {:#?}", keyword, self.token)
+            err!(self.token, "expected keyword {:#?}, got {}", keyword, self.token)
         }
     }
 
     fn expect_ident(&mut self) -> CompileResult<Ident> {
-        self.match_ident()?.ok_or(format!("expected identifier, got {:#?}", self.token))
+        if let Some(ident) = self.match_ident()? {
+            Ok(ident)
+        } else {
+            err!(self.token, "expected identifier, got {}", self.token)
+        }
     }
 
     fn expect_string_lit(&mut self) -> CompileResult<String> {
-        self.bump_if(|t| {
-            if let TokenKind::StrLit(string) = t.kind {
-                Ok(string)
-            } else {
-                Err(t)
-            }
-        })?.ok_or(format!("expected string literal, got {:#?}", self.token))
+        let token = self.bump()?;
+        if let TokenKind::StrLit(string) = token.kind {
+            Ok(string)
+        } else {
+            self.unbump(token);
+            err!(self.token, "expected string literal, got {}", self.token)
+        }
+    }
+
+    fn span_from<T: HasSpan>(&self, has_span: &T) -> Span {
+        Span::between(has_span.span(), self.prev_span)
     }
 }
 
 impl<'src> Parser<'src> {
     fn parse_import_decl(&mut self) -> CompileResult<ImportDecl> {
-        let mut specs = Vec::new();
-        if self.match_token(TokenKind::LParen)? {
-            while !self.match_token(TokenKind::RParen)? {
-                specs.push(self.parse_import_spec()?);
-                self.expect_terminal()?;
-            }
-        } else {
-            specs.push(self.parse_import_spec()?);
-            self.expect_terminal()?;
-        }
-        Ok(ImportDecl {
-            decls: specs.into()
-        })
+        let decls = self.parse_decl_body(Parser::parse_import_spec)?;
+        self.expect_terminal()?;
+        Ok(ImportDecl { decls })
     }
 
     fn parse_import_spec(&mut self) -> CompileResult<ImportSpec> {
@@ -202,7 +205,7 @@ impl<'src> Parser<'src> {
             }
             TokenKind::Eof => return Ok(None),
             _ => {
-                return err!(self.token, "expected top level declaration (const/type/var/func), found {:#?}",
+                return err!(self.token, "expected top level declaration (const/type/var/func), found {}",
                     self.token);
             }
         };
@@ -352,7 +355,7 @@ impl<'src> Parser<'src> {
         if let Some(ty) = self.parse_opt_type()? {
             Ok(ty)
         } else {
-            err!(self.token, "expected type, got {:#?}", self.token)
+            err!(self.token, "expected type, got {}", self.token)
         }
     }
 }
@@ -376,12 +379,12 @@ type NullDenotation = fn(p: &mut Parser, token: Token, bp: i32) -> CompileResult
 type LeftDenotation = fn(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> CompileResult<Expr>;
 
 fn null_constant(_p: &mut Parser, token: Token, _bp: i32) -> CompileResult<Expr> {
-    Ok(Expr::Literal(match token.kind {
+    Ok(Expr::new(ExprKind::Literal(match token.kind {
         TokenKind::Ident(i) => Literal::Ident(i),
         TokenKind::Integer(n) => Literal::Int(n),
         TokenKind::StrLit(s) => Literal::String(s),
         _ => unreachable!(),
-    }))
+    }), token.span))
 }
 
 fn null_paren(p: &mut Parser, _token: Token, bp: i32) -> CompileResult<Expr> {
@@ -391,7 +394,7 @@ fn null_paren(p: &mut Parser, _token: Token, bp: i32) -> CompileResult<Expr> {
 }
 
 fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr> {
-    let child = p.parse_expr_until(bp)?;
+    let child = P(p.parse_expr_until(bp)?);
     let op = match token.kind {
         TokenKind::Plus => UnaryOp::Plus,
         TokenKind::Minus => UnaryOp::Minus,
@@ -403,7 +406,8 @@ fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr> 
         _ => unreachable!(),
     };
 
-    Ok(Expr::Unary { op, child: P(child) })
+    let span = Span::between(token.span, child.span);
+    Ok(Expr::new(ExprKind::Unary { op, child }, span))
 }
 
 fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
@@ -416,16 +420,19 @@ fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileRes
             max = p.parse_opt_expr()?;
         }
         p.expect_token(TokenKind::RBracket)?;
-        Ok(Expr::Slice {
+
+        let span = p.span_from(&left);
+        Ok(Expr::new(ExprKind::Slice {
             left: P(left),
             start: start.map(P),
             end: end.map(P),
             max: max.map(P)
-        })
+        }, span))
     } else {
         if let Some(right) = right {
             p.expect_token(TokenKind::RBracket)?;
-            Ok(Expr::Index { left: P(left), right: P(right) })
+            let span = p.span_from(&left);
+            Ok(Expr::new(ExprKind::Index { left: P(left), right: P(right) }, span))
         } else {
             err!(token, "expected expression")
         }
@@ -437,11 +444,13 @@ fn left_selector(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> Compil
         // Type Assertion
         let ty = p.parse_type()?;
         p.expect_token(TokenKind::RParen)?;
-        Ok(Expr::TypeAssertion { left: P(left), ty })
+        let span = p.span_from(&left);
+        Ok(Expr::new(ExprKind::TypeAssertion { left: P(left), ty }, span))
     } else {
         // Field Access
         let field_name = p.expect_ident()?;
-        Ok(Expr::Selector { left: P(left), field_name })
+        let span = p.span_from(&left);
+        Ok(Expr::new(ExprKind::Selector { left: P(left), field_name }, span))
     }
 }
 
@@ -473,9 +482,10 @@ fn left_binary_op(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> Compile
         _ => panic!("Unexpected token {:?}", token),
     };
 
-    let right = p.parse_expr_until(rbp)?;
+    let right = P(p.parse_expr_until(rbp)?);
 
-    Ok(Expr::Binary { op, left: P(left), right: P(right) })
+    let span = Span::between(left.span, right.span);
+    Ok(Expr::new(ExprKind::Binary { op, left: P(left), right }, span))
 }
 
 fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
@@ -484,7 +494,7 @@ fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> Compi
     let mut ellipsis = false;
 
     if !p.match_token(TokenKind::RParen)? {
-        let arg1_is_type = if let Expr::Literal(Literal::Ident(ref ident)) = left {
+        let arg1_is_type = if let ExprKind::Literal(Literal::Ident(ref ident)) = left.kind {
             let s: &str = ident.as_ref();
             s == "make" || s == "new"
         } else {
@@ -510,12 +520,13 @@ fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> Compi
         }
     };
 
-    Ok(Expr::Call {
+    let span = p.span_from(&left);
+    Ok(Expr::new(ExprKind::Call {
         left: P(left),
         exprs: args.into(),
         ty,
         ellipsis
-    })
+    }, span))
 }
 
 impl<'a> Parser<'a> {
@@ -629,7 +640,7 @@ impl<'src> Parser<'src> {
                 if self.match_token(TokenKind::RBrace)? {
                     break;
                 } else {
-                    return err!(self.token, "expected ';' or '}}', got {:#?}", self.token);
+                    return err!(self.token, "expected ';' or '}}', got {}", self.token);
                 }
             }
         }
@@ -652,7 +663,7 @@ impl<'src> Parser<'src> {
                 Declaration::Const(self.parse_decl_body(Parser::parse_const_spec)?.into())
             }
             _ => {
-                return err!(token, "expected declaration, got {:#?}", token);
+                return err!(token, "expected declaration, got {}", token);
             }
         };
         Ok(decl)
@@ -764,7 +775,7 @@ impl<'src> Parser<'src> {
                     header = ForStmtHeader::ForClause { init_stmt, cond, post_stmt };
                 }
                 _ => {
-                    return err!(self.token, "expected valid for loop header, got {:#?} \nfollowed by {:#?}", simple_stmt, self.token);
+                    return err!(self.token, "expected valid for-loop header, got {:#?} \nfollowed by {}", simple_stmt, self.token);
                 }
             }
         }
@@ -832,7 +843,7 @@ impl<'src> Parser<'src> {
                 if let Some(simple) = self.parse_opt_simple_stmt()? {
                     Stmt::Simple(simple)
                 } else {
-                    return err!(self.token, "expected statement, got {:#?}", self.token);
+                    return err!(self.token, "expected statement, got {}", self.token);
                 }
             }
         };
@@ -908,11 +919,10 @@ impl<'src> Parser<'src> {
             }
             TokenKind::ColonEq => {
                 let idents = left.into_iter().map(|e| {
-                    if let Expr::Literal(Literal::Ident(ident)) = e {
+                    if let ExprKind::Literal(Literal::Ident(ident)) = e.kind {
                         Ok(ident)
                     } else {
-                        // TODO: Span
-                        err!(Span::INVALID, "non-name {:#?} on left side of :=", e)
+                        err!(e, "non-name {:#?} on left side of :=", e)
                     }
                 }).collect::<CompileResult<Vec<Ident>>>()?.into();
 
@@ -924,10 +934,9 @@ impl<'src> Parser<'src> {
                     }
                     Err(RangeClauseLeft::Exprs(_)) => unreachable!(),
                 }
-
             }
-            other => {
-                return err!(token.span, "expected assignment, got {:#?}", other)
+            _ => {
+                return err!(token, "expected assignment, got {}", token)
             }
         }
     }

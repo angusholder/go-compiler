@@ -9,6 +9,7 @@ fn main() {
 package main
 
 import "fmt"
+import ("hello"; "goodbye";)
 
 func main() {
     running := true
@@ -28,7 +29,7 @@ func main() {
             println!("{:#?}", source_file);
         }
         Err(e) => {
-            println!("ERROR: {}", e);
+            println!("{}", e.fmt(src));
         }
     }
 }
