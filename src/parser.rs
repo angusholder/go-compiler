@@ -241,7 +241,7 @@ impl<'src> Parser<'src> {
         let name = self.expect_ident()?;
         self.expect_token(TokenKind::LParen)?;
         let sig = self.parse_signature()?;
-        let body = if self.match_token(TokenKind::LBrace)? {
+        let body = if self.token.kind == TokenKind::LBrace {
             Some(self.parse_block()?)
         } else {
             None
@@ -618,6 +618,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_block(&mut self) -> CompileResult<Block> {
+        self.expect_token(TokenKind::LBrace)?;
         let mut stmts = Vec::new();
         while !self.match_token(TokenKind::RBrace)? {
             stmts.push(self.parse_stmt()?);
@@ -716,14 +717,12 @@ impl<'src> Parser<'src> {
             self.expect_terminal()?;
         }
         let cond = P(self.parse_expr()?);
-        self.expect_token(TokenKind::LBrace)?;
         let then = self.parse_block()?;
 
         let els = if self.match_keyword(Keyword::Else)? {
             if self.match_keyword(Keyword::If)? {
                 IfStmtTail::ElseIf(P(self.parse_if_stmt()?))
             } else {
-                self.expect_token(TokenKind::LBrace)?;
                 IfStmtTail::Block(self.parse_block()?)
             }
         } else {
@@ -734,7 +733,45 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_for_stmt(&mut self) -> CompileResult<ForStmt> {
-        unimplemented!()
+        if self.token.kind == TokenKind::LBrace {
+            let header = ForStmtHeader::Always;
+            let body = self.parse_block()?;
+            return Ok(ForStmt { header, body });
+        };
+
+        let simple_stmt = self.parse_opt_simple_stmt_ext(true)?;
+
+        let header: ForStmtHeader;
+        if let Some(SimpleStmt::RangeClause(range_clause)) = simple_stmt {
+            header = ForStmtHeader::RangeClause(range_clause);
+        } else {
+            match self.token.kind {
+                TokenKind::LBrace => {
+                    if let Some(SimpleStmt::Expr(expr)) = simple_stmt {
+                        header = ForStmtHeader::Condition(expr);
+                    } else {
+                        return err!(Span::INVALID, "loop condition must be an expression, got {:#?}", simple_stmt);
+                    }
+                }
+                TokenKind::Semicolon => {
+                    self.bump()?;
+
+                    let init_stmt = simple_stmt;
+                    let cond = self.parse_opt_expr()?.map(P);
+                    self.expect_token(TokenKind::Semicolon)?;
+                    let post_stmt = self.parse_opt_simple_stmt()?;
+
+                    header = ForStmtHeader::ForClause { init_stmt, cond, post_stmt };
+                }
+                _ => {
+                    return err!(self.token, "expected valid for loop header, got {:#?} \nfollowed by {:#?}", simple_stmt, self.token);
+                }
+            }
+        }
+
+        let body = self.parse_block()?;
+
+        Ok(ForStmt { header, body })
     }
 
     fn parse_stmt(&mut self) -> CompileResult<Stmt> {
@@ -787,6 +824,7 @@ impl<'src> Parser<'src> {
                 Stmt::Defer(P(self.parse_expr()?))
             }
             TokenKind::LBrace => {
+                self.unbump(token);
                 Stmt::Block(self.parse_block()?)
             }
             _ => {
@@ -802,7 +840,7 @@ impl<'src> Parser<'src> {
         Ok(stmt)
     }
 
-    fn parse_opt_simple_stmt(&mut self) -> CompileResult<Option<SimpleStmt>> {
+    fn parse_opt_simple_stmt_ext(&mut self, within_for_stmt_header: bool) -> CompileResult<Option<SimpleStmt>> {
         let expr = if let Some(expr) = self.parse_opt_expr()? {
             expr
         } else {
@@ -828,13 +866,13 @@ impl<'src> Parser<'src> {
                 // Replay the assignment operator
                 self.unbump(token);
 
-                self.parse_assignment(vec![expr])?
+                self.parse_assignment(vec![expr], within_for_stmt_header)?
             }
             Comma => {
                 let mut left = self.parse_comma_separated_list(Parser::parse_expr)?;
                 left.insert(0, expr);
 
-                self.parse_assignment(left)?
+                self.parse_assignment(left, within_for_stmt_header)?
             }
             _ => {
                 self.unbump(token);
@@ -845,19 +883,30 @@ impl<'src> Parser<'src> {
         Ok(Some(simple_stmt))
     }
 
-    fn parse_assignment(&mut self, left: Vec<Expr>) -> CompileResult<SimpleStmt> {
+    fn parse_opt_simple_stmt(&mut self) -> CompileResult<Option<SimpleStmt>> {
+        self.parse_opt_simple_stmt_ext(false)
+    }
+
+    fn parse_assignment(&mut self, left: Vec<Expr>, within_for_stmt_header: bool) -> CompileResult<SimpleStmt> {
         let token = self.bump()?;
         match token.kind {
             TokenKind::Assign(op) => {
-                let right = self.parse_comma_separated_list(Parser::parse_expr)?;
-                if left.len() != right.len() {
-                    return err!(Span::INVALID, "assignment count mismatch: {} = {}",
-                        left.len(), right.len())
+                match self.try_parse_range_clause(RangeClauseLeft::Exprs(left.into()), within_for_stmt_header)? {
+                    Ok(stmt) => return Ok(stmt),
+                    Err(RangeClauseLeft::Exprs(exprs)) => {
+                        let right = self.parse_comma_separated_list(Parser::parse_expr)?;
+
+                        if exprs.len() != right.len() {
+                            err!(Span::INVALID, "assignment count mismatch: {} = {}", exprs.len(), right.len())
+                        } else {
+                            Ok(SimpleStmt::Assignment { left: exprs.into(), right: right.into(), op })
+                        }
+                    }
+                    Err(RangeClauseLeft::Idents(_)) => unreachable!(),
                 }
-                Ok(SimpleStmt::Assignment { left: left.into(), right: right.into(), op })
+
             }
             TokenKind::ColonEq => {
-                let exprs = self.parse_comma_separated_list(Parser::parse_expr)?.into();
                 let idents = left.into_iter().map(|e| {
                     if let Expr::Literal(Literal::Ident(ident)) = e {
                         Ok(ident)
@@ -866,11 +915,34 @@ impl<'src> Parser<'src> {
                         err!(Span::INVALID, "non-name {:#?} on left side of :=", e)
                     }
                 }).collect::<CompileResult<Vec<Ident>>>()?.into();
-                Ok(SimpleStmt::ShortVarDecl { idents, exprs })
+
+                match self.try_parse_range_clause(RangeClauseLeft::Idents(idents), within_for_stmt_header)? {
+                    Ok(stmt) => return Ok(stmt),
+                    Err(RangeClauseLeft::Idents(idents)) => {
+                        let exprs = self.parse_comma_separated_list(Parser::parse_expr)?.into();
+                        Ok(SimpleStmt::ShortVarDecl { idents, exprs })
+                    }
+                    Err(RangeClauseLeft::Exprs(_)) => unreachable!(),
+                }
+
             }
             other => {
                 return err!(token.span, "expected assignment, got {:#?}", other)
             }
+        }
+    }
+
+    fn try_parse_range_clause(&mut self, left: RangeClauseLeft, within_for_stmt_header: bool) -> CompileResult<Result<SimpleStmt, RangeClauseLeft>> {
+        if self.token.kind == TokenKind::Keyword(Keyword::Range) {
+            if within_for_stmt_header {
+                self.bump()?;
+                let expr = P(self.parse_expr()?);
+                Ok(Ok(SimpleStmt::RangeClause(RangeClause { left, right: expr })))
+            } else {
+                err!(self.token, "expected expression, found `range`")
+            }
+        } else {
+            Ok(Err(left))
         }
     }
 

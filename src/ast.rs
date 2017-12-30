@@ -155,22 +155,26 @@ pub enum RangeClauseLeft {
 
 #[derive(Debug)]
 pub enum ForStmtHeader {
+    Always,
     Condition(P<Expr>),
     ForClause {
-        init: Option<SimpleStmt>,
+        init_stmt: Option<SimpleStmt>,
         cond: Option<P<Expr>>,
-        post: Option<SimpleStmt>,
+        post_stmt: Option<SimpleStmt>,
     },
-    RangeClause {
-        left: RangeClauseLeft,
-        right: P<Expr>,
-    }
+    RangeClause(RangeClause),
+}
+
+#[derive(Debug)]
+pub struct RangeClause {
+    pub left: RangeClauseLeft,
+    pub right: P<Expr>,
 }
 
 #[derive(Debug)]
 pub struct ForStmt {
-    header: ForStmtHeader,
-    body: Block,
+    pub header: ForStmtHeader,
+    pub body: Block,
 }
 
 #[derive(Debug)]
@@ -191,6 +195,7 @@ pub enum SimpleStmt {
         idents: List<Ident>,
         exprs: List<Expr>,
     },
+    RangeClause(RangeClause),
 }
 
 #[derive(Debug)]
