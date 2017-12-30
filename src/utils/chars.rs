@@ -50,10 +50,6 @@ impl<'src> PeekableCharIndices<'src> {
         }
     }
 
-    pub fn set_offset(&mut self, offset: usize) {
-        self.iter = self.src[offset..].chars();
-    }
-
     pub fn match_char(&mut self, expected: char) -> bool {
         self.match_char_with(|c| c == expected)
     }

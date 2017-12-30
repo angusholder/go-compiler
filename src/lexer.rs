@@ -264,6 +264,8 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
             Ident(ref ident) => return f.write_str(ident),
             Integer(i) => return write!(f, "{}", i),
             StrLit(ref s) => return f.write_str(s),
+
+            Eof => "<end of file>"
         };
         f.write_str(s)
     }
@@ -313,7 +315,7 @@ impl<'src> Lexer<'src> {
             Some(next) => next,
             None => {
                 if self.reached_eof {
-                    unimplemented!()
+                    panic!("Lexer::next() was called after EOF reached");
                 }
                 self.reached_eof = true;
                 return Ok(Token {
@@ -498,7 +500,7 @@ impl<'src> Lexer<'src> {
 
                         _ => {
                             contents.push(ch);
-                            continue
+                            continue;
                         }
                     };
 
@@ -568,12 +570,6 @@ impl<'src> Lexer<'src> {
     }
 
     pub fn offset(&self) -> usize {
-        if let Some(Some(Token { span, .. })) = self.peeked {
-            span.start as usize
-        } else {
-            // if self.peeked == Some(None) then we are at the end of the source so still just
-            // use the current offset
-            self.iter.offset()
-        }
+        self.iter.offset()
     }
 }
