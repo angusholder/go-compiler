@@ -198,7 +198,7 @@ impl<'src> Parser<'src> {
                 TopLevelDecl::Function(self.parse_func()?)
             }
             TokenKind::Keyword(Const) | TokenKind::Keyword(Type) | TokenKind::Keyword(Var) => {
-                unimplemented!()
+                TopLevelDecl::Declaration(self.parse_decl()?)
             }
             TokenKind::Eof => return Ok(None),
             _ => {
@@ -636,7 +636,78 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_decl(&mut self) -> CompileResult<Declaration> {
-        unimplemented!()
+        let token = self.bump()?;
+
+        use self::Keyword::{ Var, Type, Const };
+        use self::TokenKind::Keyword;
+        let decl = match token.kind {
+            Keyword(Var) => {
+                Declaration::Var(self.parse_decl_body(Parser::parse_var_spec)?.into())
+            }
+            Keyword(Type) => {
+                Declaration::Type(self.parse_decl_body(Parser::parse_type_spec)?.into())
+            }
+            Keyword(Const) => {
+                Declaration::Const(self.parse_decl_body(Parser::parse_const_spec)?.into())
+            }
+            _ => {
+                return err!(token, "expected declaration, got {:#?}", token);
+            }
+        };
+        Ok(decl)
+    }
+
+    fn parse_decl_body<R>(&mut self, f: fn(&mut Parser<'src>) -> CompileResult<R>) -> CompileResult<List<R>>
+    {
+        if self.match_token(TokenKind::LParen)? {
+            let mut result = Vec::new();
+            while !self.match_token(TokenKind::RParen)? {
+                result.push(f(self)?);
+                if !self.match_token(TokenKind::Semicolon)? {
+                    self.expect_token(TokenKind::RParen)?;
+                    break;
+                }
+            }
+            Ok(result.into())
+        } else {
+            Ok(vec![f(self)?].into())
+        }
+    }
+
+    fn parse_var_spec(&mut self) -> CompileResult<VarSpec> {
+        let idents = self.parse_comma_separated_list(Parser::expect_ident)?.into();
+        let ty = self.parse_opt_type()?;
+        let exprs = if self.match_token(TokenKind::Equals)? {
+            Some(self.parse_comma_separated_list(Parser::parse_expr)?.into())
+        } else {
+            None
+        };
+
+        Ok(VarSpec { idents, ty, exprs })
+    }
+
+    fn parse_type_spec(&mut self) -> CompileResult<TypeSpec> {
+        let ident = self.expect_ident()?;
+        let kind = if self.match_token(TokenKind::Equals)? {
+            TypeSpecKind::AliasDecl
+        } else {
+            TypeSpecKind::TypeDef
+        };
+        let ty = self.parse_type()?;
+
+        Ok(TypeSpec { ident, kind, ty })
+    }
+
+    fn parse_const_spec(&mut self) -> CompileResult<ConstSpec> {
+        let idents = self.parse_comma_separated_list(Parser::expect_ident)?.into();
+        let ty = self.parse_opt_type()?;
+        let exprs = if self.match_token(TokenKind::Equals)? {
+            Some(self.parse_comma_separated_list(Parser::parse_expr)?.into())
+        } else {
+            None
+        };
+
+        Ok(ConstSpec { idents, ty, exprs })
     }
 
     fn parse_if_stmt(&mut self) -> CompileResult<IfStmt> {
@@ -760,7 +831,7 @@ impl<'src> Parser<'src> {
                 self.parse_assignment(vec![expr])?
             }
             Comma => {
-                let mut left = self.parse_comma_separated_list(|p| p.parse_expr())?;
+                let mut left = self.parse_comma_separated_list(Parser::parse_expr)?;
                 left.insert(0, expr);
 
                 self.parse_assignment(left)?
@@ -778,7 +849,7 @@ impl<'src> Parser<'src> {
         let token = self.bump()?;
         match token.kind {
             TokenKind::Assign(op) => {
-                let right = self.parse_comma_separated_list(|p| p.parse_expr())?;
+                let right = self.parse_comma_separated_list(Parser::parse_expr)?;
                 if left.len() != right.len() {
                     return err!(Span::INVALID, "assignment count mismatch: {} = {}",
                         left.len(), right.len())
@@ -786,7 +857,7 @@ impl<'src> Parser<'src> {
                 Ok(SimpleStmt::Assignment { left: left.into(), right: right.into(), op })
             }
             TokenKind::ColonEq => {
-                let exprs = self.parse_comma_separated_list(|p| p.parse_expr())?.into();
+                let exprs = self.parse_comma_separated_list(Parser::parse_expr)?.into();
                 let idents = left.into_iter().map(|e| {
                     if let Expr::Literal(Literal::Ident(ident)) = e {
                         Ok(ident)
@@ -804,7 +875,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_comma_separated_list<R, F>(&mut self, f: F) -> CompileResult<Vec<R>>
-        where F: Fn(&mut Parser) -> CompileResult<R>
+        where F: Fn(&mut Parser<'src>) -> CompileResult<R>
     {
         let mut result = vec![f(self)?];
 

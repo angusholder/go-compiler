@@ -195,34 +195,37 @@ pub enum SimpleStmt {
 
 #[derive(Debug)]
 pub struct ConstSpec {
-    pub left: List<Ident>,
-    pub right: (Option<P<Type>>, List<Expr>),
+    pub idents: List<Ident>,
+    pub ty: Option<P<Type>>,
+    pub exprs: Option<List<Expr>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TypeSpecKind {
+    AliasDecl,
+    TypeDef,
 }
 
 #[derive(Debug)]
-pub enum TypeSpec {
-    AliasDecl {
-        ident: Ident,
-        ty: P<Type>,
-    },
-    TypeDef {
-        ident: Ident,
-        ty: P<Type>,
-    }
+pub struct TypeSpec {
+    pub kind: TypeSpecKind,
+    pub ident: Ident,
+    pub ty: P<Type>,
 }
 
+/// Invariant: either `ty` or `exprs` must be `Some`
 #[derive(Debug)]
 pub struct VarSpec {
     pub idents: List<Ident>,
-    pub ty: Option<Type>,
+    pub ty: Option<P<Type>>,
     pub exprs: Option<List<Expr>>,
 }
 
 #[derive(Debug)]
 pub enum Declaration {
     Const(List<ConstSpec>),
-    Type(TypeSpec),
-    Var(VarSpec),
+    Type(List<TypeSpec>),
+    Var(List<VarSpec>),
 }
 
 #[derive(Debug)]
