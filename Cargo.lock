@@ -1,4 +1,14 @@
 [[package]]
 name = "go-compiler"
 version = "0.1.0"
+dependencies = [
+ "num-traits 0.1.41 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
+[[package]]
+name = "num-traits"
+version = "0.1.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[metadata]
+"checksum num-traits 0.1.41 (registry+https://github.com/rust-lang/crates.io-index)" = "cacfcab5eb48250ee7d0c7896b51a2c5eec99c1feea5f32025635f5ae4b00070"

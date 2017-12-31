@@ -1,8 +1,12 @@
+extern crate num_traits;
+
 #[macro_use]
 mod utils;
 mod lexer;
 mod ast;
 mod parser;
+mod type_check;
+mod compiler;
 
 fn main() {
     let src = r#"
