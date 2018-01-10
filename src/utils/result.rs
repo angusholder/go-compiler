@@ -30,17 +30,19 @@ pub type CompileResult<T> = Result<T, CompileError>;
 
 macro_rules! err {
     ($has_span:expr, $fmt:expr, $($arg:expr),+) => {{
+        use $crate::utils::result::{ CompileError, HasSpan };
         let has_span: &HasSpan = &$has_span;
         let span = has_span.span();
         let msg = format!($fmt, $($arg),+);
-        Err($crate::utils::result::CompileError { msg, span })
+        Err(CompileError { msg, span })
     }};
 
     ($has_span:expr, $fmt:expr) => {{
+        use $crate::utils::result::{ CompileError, HasSpan };
         let has_span: &HasSpan = &$has_span;
         let span = has_span.span();
         let msg = $fmt.to_string();
-        Err($crate::utils::result::CompileError { msg, span })
+        Err(CompileError { msg, span })
     }};
 }
 
