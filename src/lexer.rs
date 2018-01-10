@@ -1,10 +1,9 @@
 use std::str::FromStr;
 use std::fmt::{ self, Display };
 
-use ast::Ident;
 use utils::chars::PeekableCharIndices;
-use utils::result::{ CompileResult, Span };
-use utils::result::HasSpan;
+use utils::result::{ CompileResult, Span, HasSpan };
+use utils::intern::Atom;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Keyword {
@@ -188,7 +187,7 @@ pub enum TokenKind {
     Or,             // |
     LogOr,          // ||
 
-    Ident(Ident),
+    Ident(Atom),
     Integer(u64),
     StrLit(String),
 
@@ -532,7 +531,7 @@ impl<'src> Lexer<'src> {
                 if let Ok(keyword) = self::Keyword::from_str(ident) {
                     Keyword(keyword)
                 } else {
-                    Ident(ident.to_string().into())
+                    Ident(Atom::from(ident))
                 }
             }
             _ if is_number_head(ch) => {

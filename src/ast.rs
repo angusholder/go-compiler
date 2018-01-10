@@ -1,11 +1,9 @@
-use std::fmt;
-use std::ops::Deref;
-
 use lexer::AssignOp;
 use utils::ptr::{ P, List };
 use utils::result::Span;
 use utils::result::HasSpan;
 use type_check;
+use utils::intern::Atom;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UnaryOp {
@@ -52,7 +50,7 @@ pub enum Literal {
     Int(u64),
     // TODO: Float, Imag, Rune
     String(String),
-    Ident(Ident),
+    Ident(Atom),
     // TODO: CompositeLit
     Function {
         sig: Signature,
@@ -98,7 +96,7 @@ pub enum ExprKind {
     },
     Selector {
         left: P<Expr>,
-        field_name: Ident,
+        field_name: Atom,
     },
     Index {
         left: P<Expr>,
@@ -124,41 +122,8 @@ pub enum ExprKind {
     },
 }
 
-pub type Label = Ident;
+pub type Label = Atom;
 pub type Block = List<Stmt>;
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct Ident {
-    inner: Box<str>,
-}
-
-impl fmt::Debug for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Ident({})", self.inner)
-    }
-}
-
-impl From<String> for Ident {
-    fn from(t: String) -> Self {
-        Ident {
-            inner: t.into_boxed_str()
-        }
-    }
-}
-
-impl Ident {
-    pub fn is_blank(&self) -> bool {
-        self.inner.as_ref() == "_"
-    }
-}
-
-impl Deref for Ident {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 #[derive(Debug)]
 pub enum IfStmtTail {
@@ -178,7 +143,7 @@ pub struct IfStmt {
 #[derive(Debug)]
 pub enum RangeClauseLeft {
     Exprs(List<Expr>),
-    Idents(List<Ident>),
+    Idents(List<Atom>),
 }
 
 #[derive(Debug)]
@@ -220,7 +185,7 @@ pub enum SimpleStmt {
         op: AssignOp,
     },
     ShortVarDecl {
-        idents: List<Ident>,
+        idents: List<Atom>,
         exprs: List<Expr>,
     },
     RangeClause(RangeClause),
@@ -228,7 +193,7 @@ pub enum SimpleStmt {
 
 #[derive(Debug)]
 pub struct ConstSpec {
-    pub idents: List<Ident>,
+    pub idents: List<Atom>,
     pub ty: Option<P<Type>>,
     pub exprs: Option<List<Expr>>,
 }
@@ -242,14 +207,14 @@ pub enum TypeSpecKind {
 #[derive(Debug)]
 pub struct TypeSpec {
     pub kind: TypeSpecKind,
-    pub ident: Ident,
+    pub ident: Atom,
     pub ty: P<Type>,
 }
 
 /// Invariant: either `ty` or `exprs` must be `Some`
 #[derive(Debug)]
 pub struct VarSpec {
-    pub idents: List<Ident>,
+    pub idents: List<Atom>,
     pub ty: Option<P<Type>>,
     pub exprs: Option<List<Expr>>,
 }
@@ -285,8 +250,8 @@ pub enum Stmt {
 #[derive(Debug)]
 pub enum Type {
     TypeName {
-        ident: Ident,
-        package: Option<Ident>,
+        ident: Atom,
+        package: Option<Atom>,
     },
     TypeLit(TypeLit),
 }
@@ -323,7 +288,7 @@ pub enum TypeLit {
 pub enum ImportAlias {
     None,
     Splat,
-    Name(Ident),
+    Name(Atom),
 }
 
 #[derive(Debug)]
@@ -334,7 +299,7 @@ pub struct ImportSpec {
 
 #[derive(Debug)]
 pub struct ParameterDecl {
-    pub idents: Option<List<Ident>>,
+    pub idents: Option<List<Atom>>,
     pub ellipsis: bool,
     pub ty: P<Type>,
 }
@@ -354,7 +319,7 @@ pub struct Signature {
 
 #[derive(Debug)]
 pub struct FunctionDecl {
-    pub name: Ident,
+    pub name: Atom,
     pub sig: Signature,
     pub body: Option<Block>,
 }
@@ -363,7 +328,7 @@ pub struct FunctionDecl {
 pub struct MethodDecl {
     // Invariants: must contain a single, non-variadic parameter with type of the form T or *T
     pub receiver: ParameterDecl,
-    pub name: Ident,
+    pub name: Atom,
     pub sig: Signature,
     pub body: Option<Block>,
 }
@@ -382,7 +347,7 @@ pub struct ImportDecl {
 
 #[derive(Debug)]
 pub struct SourceFile {
-    pub package_name: Ident,
+    pub package_name: Atom,
 
     // Flattened list of imports
     pub imports: List<ImportSpec>,

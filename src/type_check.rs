@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use num_traits::PrimInt;
-
 use ast;
 use utils::result::{ Span, CompileResult };
 use vm::Primitive;

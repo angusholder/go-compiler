@@ -6,6 +6,7 @@ use lexer::{ Lexer, Token, TokenKind, Keyword, AssignOp };
 use utils::ptr::{ List, P };
 use utils::result::{ CompileResult, Span };
 use utils::result::HasSpan;
+use utils::intern::Atom;
 
 pub struct Parser<'src> {
     lexer: Lexer<'src>,
@@ -119,7 +120,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn match_ident(&mut self) -> CompileResult<Option<Ident>> {
+    fn match_ident(&mut self) -> CompileResult<Option<Atom>> {
         self.bump_if(|t| {
             if let TokenKind::Ident(ident) = t.kind {
                 Ok(ident)
@@ -147,7 +148,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn expect_ident(&mut self) -> CompileResult<Ident> {
+    fn expect_ident(&mut self) -> CompileResult<Atom> {
         if let Some(ident) = self.match_ident()? {
             Ok(ident)
         } else {
@@ -214,7 +215,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_parameter_decl(&mut self) -> CompileResult<Option<ParameterDecl>> {
-        let idents: Option<List<Ident>>;
+        let idents: Option<List<Atom>>;
 
         if let Some(ident) = self.match_ident()? {
             let mut list = vec![ident];
@@ -924,7 +925,7 @@ impl<'src> Parser<'src> {
                     } else {
                         err!(e, "non-name {:#?} on left side of :=", e)
                     }
-                }).collect::<CompileResult<Vec<Ident>>>()?.into();
+                }).collect::<CompileResult<Vec<Atom>>>()?.into();
 
                 match self.try_parse_range_clause(RangeClauseLeft::Idents(idents), within_for_stmt_header)? {
                     Ok(stmt) => return Ok(stmt),

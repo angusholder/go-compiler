@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::{ PartialEq, PartialOrd, Ordering };
+use std::fmt::{ self, Display, Debug };
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{ Deref, DerefMut };
@@ -85,6 +86,18 @@ impl PartialEq for Atom {
 impl PartialOrd for Atom {
     fn partial_cmp(&self, other: &Atom) -> Option<Ordering> {
         <Self as AsRef<str>>::as_ref(self).partial_cmp(other)
+    }
+}
+
+impl Display for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
+impl Debug for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Atom({})", self)
     }
 }
 
