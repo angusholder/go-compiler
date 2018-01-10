@@ -1,6 +1,7 @@
 use ast;
 use utils::result::CompileResult;
 use type_check::*;
+use vm::{ Opcode, Primitive };
 
 pub struct Compiler {
     env: Environment,
@@ -14,9 +15,10 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
-        for decl in source.decls {
+        for decl in source.decls.iter() {
             self.compile_top_level_decl(decl)?;
         }
+        Ok(())
     }
 }
 
@@ -26,43 +28,42 @@ impl Compiler {
 
 impl Compiler {
     fn compile_top_level_decl(&mut self, decl: &ast::TopLevelDecl) -> CompileResult<()> {
-        match decl {
-            TopLevelDecl::Declaration(ref decl) => {
+        use self::ast::TopLevelDecl::*;
+        match *decl {
+            Declaration(ref decl) => {
                 self.compile_decl(decl)
             }
-            TopLevelDecl::Function(ref func) => {
-                self.compile_func(func)
+            Function(ref func) => {
+                self.compile_func(func)?;
+                unimplemented!()
             }
-            TopLevelDecl::Method(_) => unimplemented!()
+            Method(_) => unimplemented!()
         }
     }
 
-    fn compile_decl(&mut self, decl: ast::Declaration) -> CompileResult<()> {
+    fn compile_decl(&mut self, decl: &ast::Declaration) -> CompileResult<()> {
         unimplemented!()
     }
 
     fn compile_func(&mut self, func: &ast::FunctionDecl) -> CompileResult<Function> {
-        assert!(func.sig.params.is_empty());
-        assert!(func.sig.result == FuncResult::None);
-
-        let body = func.body.as_ref().unwrap();
-        for stmt in body {
-            self.compile_stmt(stmt)?;
-        }
-
-        Ok(())
+        FunctionCompiler::new(&mut self.env, func).compile()
     }
 }
 
-pub struct FunctionCompiler<'env, 'fn> {
-    env: &'env mut Environment,
-    decl: &'fn ast::FunctionDecl,
+pub struct Function {
     code: Vec<Opcode>,
     consts: Vec<Primitive>,
 }
 
-impl<'env, 'fn> FunctionCompiler<'env, 'fn> {
-    fn new(env: &'env mut Environment, decl: &'fn ast::FunctionDecl) -> FunctionCompiler<'env, 'fn> {
+pub struct FunctionCompiler<'env, 'func> {
+    env: &'env mut Environment,
+    decl: &'func ast::FunctionDecl,
+    code: Vec<Opcode>,
+    consts: Vec<Primitive>,
+}
+
+impl<'env, 'func> FunctionCompiler<'env, 'func> {
+    fn new(env: &'env mut Environment, decl: &'func ast::FunctionDecl) -> FunctionCompiler<'env, 'func> {
         FunctionCompiler {
             env, decl,
             code: Vec::new(),
@@ -70,44 +71,83 @@ impl<'env, 'fn> FunctionCompiler<'env, 'fn> {
         }
     }
 
-    fn compile(&mut self) -> CompileResult<Function> {
-        for stmt in self.decl.body.as_ref().unwrap() {
+    fn compile(mut self) -> CompileResult<Function> {
+        assert!(self.decl.sig.params.is_empty());
+//        assert!(self.decl.sig.result == ast::FuncResult::None);
+
+        let body = self.decl.body.as_ref().unwrap();
+
+        for stmt in body.iter() {
             self.compile_stmt(stmt)?;
         }
+
+        Ok(Function {
+            code: self.code,
+            consts: self.consts,
+        })
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct CodeOffset(u32);
 
-impl<'env, 'fn> FunctionCompiler<'env, 'fn> {
+impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn emit(&mut self, opcode: Opcode) -> CodeOffset {
         self.code.push(opcode);
-        CodeOffset(self.code.len() - 1)
+        CodeOffset(self.code.len() as u32 - 1)
     }
 }
 
-impl<'env, 'fn> FunctionCompiler<'env, 'fn> {
+impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn compile_stmt(&mut self, stmt: &ast::Stmt) -> CompileResult<()> {
         use self::ast::Stmt::*;
-        match stmt {
+        match *stmt {
             If(ref if_stmt) => {
-                self.compile_if_stmt(if_stmt)?;
+                self.compile_if_stmt(if_stmt)
             }
-            Simple(simple) => {
-                self.compile_simple_stmt(simple)?;
+            Simple(ref simple) => {
+                self.compile_simple_stmt(simple)
             }
+            _ => unimplemented!()
         }
-        Ok(())
     }
 
     fn compile_if_stmt(&mut self, stmt: &ast::IfStmt) -> CompileResult<()> {
-        if let Some(pre) = stmt.pre_stmt {
+        if let Some(ref pre) = stmt.pre_stmt {
             self.compile_simple_stmt(pre)?;
         }
 
+        unimplemented!()
+    }
 
+    fn compile_simple_stmt(&mut self, stmt: &ast::SimpleStmt) -> CompileResult<()> {
+        use self::ast::SimpleStmt::*;
+        match *stmt {
+            Expr(ref expr) => self.compile_expr(expr),
+            _ => unimplemented!()
+        }
+    }
 
-        Ok(())
+    fn compile_expr(&mut self, expr: &ast::Expr) -> CompileResult<()> {
+        use self::ast::ExprKind;
+        match expr.kind {
+            ExprKind::Literal(ref literal) => self.compile_literal(literal),
+            _ => unimplemented!()
+        }
+    }
+
+    fn compile_literal(&mut self, literal: &ast::Literal) -> CompileResult<()> {
+        unimplemented!()
+    }
+
+    // Used for
+    fn compile_mutate_expr<F>(&mut self, expr: &ast::Expr, mutate: F) -> CompileResult<()>
+    where F: Fn(&mut FunctionCompiler) -> CompileResult<()>
+    {
+        unimplemented!()
+    }
+
+    fn compile_assignable_expr(&mut self, expr: &ast::Expr) -> CompileResult<()> {
+        unimplemented!()
     }
 }

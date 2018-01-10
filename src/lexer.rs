@@ -189,7 +189,7 @@ pub enum TokenKind {
     LogOr,          // ||
 
     Ident(Ident),
-    Integer(i64),
+    Integer(u64),
     StrLit(String),
 
     Eof,
@@ -540,7 +540,7 @@ impl<'src> Lexer<'src> {
                 }
                 let span = Span::new(start_index, self.iter.offset());
                 let string = span.as_str(self.src);
-                Integer(string.parse::<i64>().unwrap())
+                Integer(string.parse().unwrap())
             }
             _ => {
                 let span = Span::new(start_index, self.offset());

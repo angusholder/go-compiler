@@ -5,6 +5,7 @@ use lexer::AssignOp;
 use utils::ptr::{ P, List };
 use utils::result::Span;
 use utils::result::HasSpan;
+use type_check;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UnaryOp {
@@ -48,10 +49,8 @@ pub enum BinaryOp {
 
 #[derive(Debug)]
 pub enum Literal {
-    Int(i64),
-    Float(f64),
-    Imag(f64),
-    Rune(char),
+    Int(u64),
+    // TODO: Float, Imag, Rune
     String(String),
     Ident(Ident),
     // TODO: CompositeLit
@@ -65,11 +64,13 @@ pub enum Literal {
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
+    pub ty: type_check::Type,
 }
 
 impl Expr {
     pub fn new(kind: ExprKind, span: Span) -> Expr {
-        Expr { kind, span }
+        let ty = type_check::Type::Unresolved;
+        Expr { kind, span, ty }
     }
 }
 

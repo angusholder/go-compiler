@@ -5,3 +5,7 @@ authors = ["Angus Holder <aholder97@gmail.com>"]
 
 [dependencies]
 num-traits = "*"
+vec_map = "*"
+smallvec = "*"
+string-interner = "*"
+fnv = "*"
