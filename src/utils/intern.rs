@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::{ PartialEq, PartialOrd, Ordering };
 use std::fmt::{ self, Display, Debug };
+use std::hash::{ Hash, Hasher };
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{ Deref, DerefMut };
@@ -77,9 +78,16 @@ impl AsRef<str> for Atom {
     }
 }
 
+impl Hash for Atom {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let s: &str = self.as_ref();
+        s.hash(state);
+    }
+}
+
 impl PartialEq for Atom {
     fn eq(&self, other: &Self) -> bool {
-        self.as_ref() == other.as_ref()
+        self.index == other.index
     }
 }
 
