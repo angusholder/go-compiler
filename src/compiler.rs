@@ -15,18 +15,44 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
-        for decl in source.decls.iter() {
-            self.compile_top_level_decl(decl)?;
-        }
-        Ok(())
+        // First step is to ensure that all imports are available for use.
+        self.compile_imports(source)?;
+
+        // Top level declarations use block scoping rather than lexical, so do a pass on them just
+        // to collect all their names for name resolution in the following passes.
+        self.collect_top_level_declarations(source)?;
+
+        // https://golang.org/ref/spec#Package_initialization
+        // Generate code that initializes global variables in the specified order, then calls all
+        // `init` functions in order of declaration.
+        self.compile_top_level_initializers(source)?;
+
+        // Now that all top-level variables are properly initialized, we can compile all the
+        // top-level functions.
+        self.compile_top_level_functions(source)
     }
 }
 
 impl Compiler {
+    fn compile_imports(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
+        for import in source.imports.iter() {
+            unimplemented!()
+        }
+        Ok(())
+    }
 
-}
+    fn collect_top_level_declarations(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
+        unimplemented!()
+    }
 
-impl Compiler {
+    fn compile_top_level_initializers(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
+        unimplemented!()
+    }
+
+    fn compile_top_level_functions(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
+        unimplemented!()
+    }
+
     fn compile_top_level_decl(&mut self, decl: &ast::TopLevelDecl) -> CompileResult<()> {
         use self::ast::TopLevelDecl::*;
         match *decl {
