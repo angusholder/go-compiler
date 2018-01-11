@@ -2,7 +2,7 @@ use lexer::AssignOp;
 use utils::ptr::{ P, List };
 use utils::result::Span;
 use utils::result::HasSpan;
-use type_check;
+use types::{ self, TypeRef };
 use utils::intern::Atom;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,12 +62,12 @@ pub enum Literal {
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
-    pub ty: type_check::Type,
+    pub ty: TypeRef,
 }
 
 impl Expr {
     pub fn new(kind: ExprKind, span: Span) -> Expr {
-        let ty = type_check::Type::Unresolved;
+        let ty = types::UNRESOLVED;
         Expr { kind, span, ty }
     }
 }
