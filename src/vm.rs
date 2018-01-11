@@ -91,8 +91,6 @@ pub enum PrimitiveType {
     I16,
     I32,
     I64,
-
-    Ptr,
 }
 
 #[derive(Clone, Copy)]
@@ -106,8 +104,6 @@ pub union Primitive {
     i16: i16,
     i32: i32,
     i64: i64,
-
-    ptr: usize,
 }
 
 impl Primitive {
@@ -132,8 +128,6 @@ impl Primitive {
                 I16 => Primitive { i16: read(ptr as *const i16) },
                 I32 => Primitive { i32: read(ptr as *const i32) },
                 I64 => Primitive { i64: read(ptr as *const i64) },
-
-                Ptr => Primitive { ptr: read(ptr as *const usize) },
             }
         }
     }
@@ -159,8 +153,6 @@ impl Primitive {
                 I16 => write(ptr as *mut i16, self.i16),
                 I32 => write(ptr as *mut i32, self.i32),
                 I64 => write(ptr as *mut i64, self.i64),
-
-                Ptr => write(ptr as *mut usize, self.ptr),
             }
         }
     }
@@ -179,8 +171,6 @@ fn integer_binary_execute(a: Primitive, b: Primitive, op: IntegerBinaryOp, ty: P
             I16 => Primitive { i16: op.execute(a.i16, b.i16) },
             I32 => Primitive { i32: op.execute(a.i32, b.i32) },
             I64 => Primitive { i64: op.execute(a.i64, b.i64) },
-
-            Ptr => Primitive { ptr: op.execute(a.ptr, b.ptr) },
         }
     }
 }
@@ -198,8 +188,6 @@ fn integer_unary_execute(a: Primitive, op: IntegerUnaryOp, ty: PrimitiveType) ->
             I16 => Primitive { i16: op.execute(a.i16) },
             I32 => Primitive { i32: op.execute(a.i32) },
             I64 => Primitive { i64: op.execute(a.i64) },
-
-            Ptr => Primitive { ptr: op.execute(a.ptr) },
         }
     }
 }
