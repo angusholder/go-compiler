@@ -59,21 +59,6 @@ impl<'src> Parser<'src> {
 }
 
 impl<'src> Parser<'src> {
-    fn look_ahead<R, F>(&mut self, dist: usize, f: F) -> CompileResult<R>
-        where F: FnOnce(&Token) -> R
-    {
-        if dist == 0 {
-            Ok(f(&self.token))
-        } else {
-            let offset = dist - 1;
-            while self.lookahead_stack.len() < offset {
-                let token = self.lexer.next()?;
-                self.lookahead_stack.push_back(token);
-            }
-            Ok(f(&self.lookahead_stack[offset]))
-        }
-    }
-
     fn bump(&mut self) -> CompileResult<Token> {
         let token = if let Some(token) = self.lookahead_stack.pop_front() {
             token
@@ -121,13 +106,12 @@ impl<'src> Parser<'src> {
     }
 
     fn match_ident(&mut self) -> CompileResult<Option<Atom>> {
-        self.bump_if(|t| {
-            if let TokenKind::Ident(ident) = t.kind {
-                Ok(ident)
-            } else {
-                Err(t)
-            }
-        })
+        if let TokenKind::Ident(ident) = self.token.kind {
+            self.bump()?;
+            Ok(Some(ident))
+        } else {
+            Ok(None)
+        }
     }
 
     fn expect_token(&mut self, token_kind: TokenKind) -> CompileResult<()> {
