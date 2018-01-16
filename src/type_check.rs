@@ -4,7 +4,9 @@ use ast;
 use utils::result::{ Span, CompileResult };
 use vm::Primitive;
 use utils::intern::Atom;
+use utils::id::IdVecMap;
 use types::{self, Type, TypeRegistry, TypeId};
+use ast::ExprId;
 
 pub enum DeclarationKind {
     Const {
@@ -98,50 +100,71 @@ impl Environment {
     }
 }
 
-pub fn type_check(expr: &mut ast::Expr, env: &Environment) -> CompileResult<TypeId> {
-    use self::ast::ExprKind::*;
-    match expr.kind {
-        Binary { op, ref mut left, ref mut right } => {
-            use ast::BinaryOp::*;
+struct TypeChecker {
+    types: IdVecMap<ExprId, TypeId>,
+}
 
-            type_check(left, env)?;
-            type_check(right, env)?;
+impl TypeChecker {
+    pub fn check_expr(&mut self, expr: &ast::Expr, env: &Environment) -> CompileResult<TypeId> {
+        use self::ast::ExprKind::*;
+        match expr.kind {
+            Binary { op, ref left, ref right } => {
+                use ast::BinaryOp::*;
 
-            match op {
-                LogOr | LogAnd => {
+                let left_ty = self.check_expr(left, env)?;
+                let right_ty = self.check_expr(right, env)?;
 
-                }
+                let result_type = match op {
+                    LogOr | LogAnd => {
+                        if left_ty != types::BOOL || right_ty != types::BOOL {
+                            return err!(expr.span, "{} operator expects boolean operands, got {:?} and {:?}",
+                                op, left_ty, right_ty);
+                        }
+                        types::BOOL
+                    }
 
-                Equals | NotEqual | Less | LessOrEqual | Greater | GreaterOrEqual => {
+                    Equals | NotEqual | Less | LessOrEqual | Greater | GreaterOrEqual => {
+                        if left_ty != right_ty {
+                            return err!(expr.span, "{} operator not defined for {:?} and {:?}",
+                                op, left_ty, right_ty);
+                        }
+                        types::BOOL
+                    }
 
-                }
+                    Add | Sub | Or | Xor | Mul | Div | Remainder | And | AndNot => {
+                        if left_ty != right_ty {
+                            return err!(expr.span, "{} operator not defined for {:?} and {:?}",
+                                op, left_ty, right_ty);
+                        }
+                        left_ty
+                    }
 
-                Add | Sub | Or | Xor | Mul | Div | Remainder | And | AndNot => {
+                    LShift | RShift => {
+                        unimplemented!()
+                    }
+                };
 
-                }
+                self.types.insert(expr.id, result_type);
 
-                LShift | RShift => {
-
+                Ok(result_type)
+            }
+            Literal(ast::Literal::Int(_)) => {
+                Ok(types::LITERAL_INT)
+            }
+            Literal(ast::Literal::Ident(ident)) => {
+                match env.get_decl(ident).map(|d| &d.kind) {
+                    Some(&DeclarationKind::Var(ty)) | Some(&DeclarationKind::Const { ty, .. }) => {
+                        Ok(ty)
+                    }
+                    Some(&DeclarationKind::Type(ty)) => {
+                        err!(expr.span, "type {:?} is not an expression", ty)
+                    }
+                    None => {
+                        err!(expr.span, "unknown identifier {:?}", ident)
+                    }
                 }
             }
-            unimplemented!()
+            _ => unimplemented!()
         }
-        Literal(ast::Literal::Int(_)) => {
-            Ok(types::LITERAL_INT)
-        }
-        Literal(ast::Literal::Ident(ident)) => {
-            match env.get_decl(ident).map(|d| &d.kind) {
-                Some(&DeclarationKind::Var(ty)) | Some(&DeclarationKind::Const { ty, .. }) => {
-                    unimplemented!()
-                }
-                Some(&DeclarationKind::Type(ty)) => {
-                    err!(expr.span, "type {:?} is not an expression", ty)
-                }
-                None => {
-                    err!(expr.span, "unknown identifier {:?}", ident)
-                }
-            }
-        }
-        _ => unimplemented!()
     }
 }
