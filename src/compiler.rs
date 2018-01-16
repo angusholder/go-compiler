@@ -161,8 +161,7 @@ impl_id!(ConstId);
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn emit(&mut self, opcode: Opcode) -> CodeOffset {
-        self.code.push(opcode);
-        CodeOffset(self.code.len() as u32 - 1)
+        self.code.append(opcode)
     }
 }
 

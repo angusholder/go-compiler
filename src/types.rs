@@ -1,7 +1,7 @@
 use utils::id::IdVecMap;
 use vm::PrimitiveType;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct TypeId(u32);
 impl_id!(TypeId);
 
@@ -29,8 +29,6 @@ pub const RUNE: TypeId = TypeId(15);
 pub const INT: TypeId = TypeId(16);
 pub const UINT: TypeId = TypeId(17);
 pub const UINTPTR: TypeId = TypeId(18);
-
-const FIRST_UNRESERVED: TypeId = TypeId(20);
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Type {
@@ -94,7 +92,7 @@ impl TypeRegistry {
     }
 
     pub fn lookup(&self, type_ref: TypeId) -> &Type {
-        &self.types[type_ref.0 as usize]
+        &self.types[type_ref]
     }
 
     pub fn set(&mut self, type_ref: TypeId, ty: Type) {
@@ -108,7 +106,7 @@ impl TypeRegistry {
     }
 
     fn next_type_ref(&self) -> TypeId {
-        self.types.keys().last().unwrap_or(FIRST_UNRESERVED)
+        self.types.next_key()
     }
 }
 

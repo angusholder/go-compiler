@@ -4,8 +4,8 @@ use std::mem;
 use ast::*;
 use lexer::{ Lexer, Token, TokenKind, Keyword, AssignOp };
 use utils::ptr::{ List, P };
-use utils::result::{ CompileResult, Span };
-use utils::result::HasSpan;
+use utils::result::{ CompileResult, Span, HasSpan };
+use utils::id::Id;
 use utils::intern::Atom;
 
 pub struct Parser<'src> {
@@ -13,6 +13,7 @@ pub struct Parser<'src> {
     token: Token,
     lookahead_stack: VecDeque<Token>,
     prev_span: Span,
+    expr_id: usize,
 }
 
 impl<'src> Parser<'src> {
@@ -25,6 +26,7 @@ impl<'src> Parser<'src> {
                 span: Span::INVALID,
             },
             prev_span: Span::INVALID,
+            expr_id: 0,
         };
         parser.bump()?;
         Ok(parser)
@@ -152,6 +154,12 @@ impl<'src> Parser<'src> {
 
     fn span_from<T: HasSpan>(&self, has_span: &T) -> Span {
         Span::between(has_span.span(), self.prev_span)
+    }
+
+    fn make_expr(&mut self, kind: ExprKind, span: Span) -> Expr {
+        let id = ExprId::from_usize(self.expr_id);
+        self.expr_id += 1;
+        Expr::new(kind, span, id)
     }
 }
 
@@ -363,8 +371,8 @@ const BP_ACCESSOR: i32 = 70;   // a.b a[b] a[b:c] a.(type) f(a, b) []type(a)
 type NullDenotation = fn(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr>;
 type LeftDenotation = fn(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> CompileResult<Expr>;
 
-fn null_constant(_p: &mut Parser, token: Token, _bp: i32) -> CompileResult<Expr> {
-    Ok(Expr::new(ExprKind::Literal(match token.kind {
+fn null_constant(p: &mut Parser, token: Token, _bp: i32) -> CompileResult<Expr> {
+    Ok(p.make_expr(ExprKind::Literal(match token.kind {
         TokenKind::Ident(i) => Literal::Ident(i),
         TokenKind::Integer(n) => Literal::Int(n),
         TokenKind::StrLit(s) => Literal::String(s),
@@ -392,7 +400,7 @@ fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr> 
     };
 
     let span = Span::between(token.span, child.span);
-    Ok(Expr::new(ExprKind::Unary { op, child }, span))
+    Ok(p.make_expr(ExprKind::Unary { op, child }, span))
 }
 
 fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
@@ -407,7 +415,7 @@ fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileRes
         p.expect_token(TokenKind::RBracket)?;
 
         let span = p.span_from(&left);
-        Ok(Expr::new(ExprKind::Slice {
+        Ok(p.make_expr(ExprKind::Slice {
             left: P(left),
             start: start.map(P),
             end: end.map(P),
@@ -417,7 +425,7 @@ fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileRes
         if let Some(right) = right {
             p.expect_token(TokenKind::RBracket)?;
             let span = p.span_from(&left);
-            Ok(Expr::new(ExprKind::Index { left: P(left), right: P(right) }, span))
+            Ok(p.make_expr(ExprKind::Index { left: P(left), right: P(right) }, span))
         } else {
             err!(token, "expected expression")
         }
@@ -430,12 +438,12 @@ fn left_selector(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> Compil
         let ty = p.parse_type()?;
         p.expect_token(TokenKind::RParen)?;
         let span = p.span_from(&left);
-        Ok(Expr::new(ExprKind::TypeAssertion { left: P(left), ty }, span))
+        Ok(p.make_expr(ExprKind::TypeAssertion { left: P(left), ty }, span))
     } else {
         // Field Access
         let field_name = p.expect_ident()?;
         let span = p.span_from(&left);
-        Ok(Expr::new(ExprKind::Selector { left: P(left), field_name }, span))
+        Ok(p.make_expr(ExprKind::Selector { left: P(left), field_name }, span))
     }
 }
 
@@ -470,7 +478,7 @@ fn left_binary_op(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> Compile
     let right = P(p.parse_expr_until(rbp)?);
 
     let span = Span::between(left.span, right.span);
-    Ok(Expr::new(ExprKind::Binary { op, left: P(left), right }, span))
+    Ok(p.make_expr(ExprKind::Binary { op, left: P(left), right }, span))
 }
 
 fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {
@@ -506,7 +514,7 @@ fn left_func_call(p: &mut Parser, _token: Token, left: Expr, _rbp: i32) -> Compi
     };
 
     let span = p.span_from(&left);
-    Ok(Expr::new(ExprKind::Call {
+    Ok(p.make_expr(ExprKind::Call {
         left: P(left),
         exprs: args.into(),
         ty,

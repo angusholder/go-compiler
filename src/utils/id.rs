@@ -11,10 +11,14 @@ pub trait Id: Copy + Eq + Hash {
 }
 
 macro_rules! impl_id {
-    ($ty:ty) => {
-        impl &crate::utils::id::Id for $ty {
+    ($ty:ident) => {
+        impl $crate::utils::id::Id for $ty {
             fn as_usize(self) -> usize {
                 self.0 as usize
+            }
+
+            fn from_usize(n: usize) -> $ty {
+                $ty(n as u32)
             }
         }
     };
@@ -45,6 +49,10 @@ impl<K: Id, V> IdVecMap<K, V> {
 
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
         self.map.get_mut(key.as_usize())
+    }
+
+    pub fn next_key(&self) -> K {
+        K::from_usize(self.map.keys().last().unwrap_or(0))
     }
 }
 

@@ -2,7 +2,6 @@ use lexer::AssignOp;
 use utils::ptr::{ P, List };
 use utils::result::Span;
 use utils::result::HasSpan;
-use types::{ self, TypeRef };
 use utils::intern::Atom;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,17 +57,20 @@ pub enum Literal {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ExprId(u32);
+impl_id!(ExprId);
+
 #[derive(Debug)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
-    pub ty: TypeRef,
+    pub id: ExprId,
 }
 
 impl Expr {
-    pub fn new(kind: ExprKind, span: Span) -> Expr {
-        let ty = types::UNRESOLVED;
-        Expr { kind, span, ty }
+    pub fn new(kind: ExprKind, span: Span, id: ExprId) -> Expr {
+        Expr { kind, span, id }
     }
 }
 
