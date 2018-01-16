@@ -1,6 +1,7 @@
 use ast;
-use utils::result::CompileResult;
 use type_check::*;
+use utils::id::IdVec;
+use utils::result::CompileResult;
 use vm::{ Opcode, Primitive };
 
 pub struct Compiler {
@@ -42,11 +43,43 @@ impl Compiler {
     }
 
     fn collect_top_level_declarations(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
-        unimplemented!()
+        for decl in source.decls.iter() {
+            match *decl {
+                ast::TopLevelDecl::Function(ref fn_decl) => {
+                    if fn_decl.name.as_str() != "main" {
+                        unimplemented!()
+                    }
+                }
+                _ => unimplemented!()
+            }
+        }
+        Ok(())
     }
 
     fn compile_top_level_initializers(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
-        unimplemented!()
+        use self::ast::Declaration::*;
+        use self::ast::TopLevelDecl::*;
+        for decl in source.decls.iter() {
+            match *decl {
+                Declaration(Var(_)) => {
+                    unimplemented!()
+                }
+
+                Declaration(Const(_)) => {
+                    unimplemented!()
+                }
+
+                Function(ref decl) => {
+                    if decl.name == "init" {
+                        unimplemented!()
+                    }
+                }
+
+                // Nothing to do
+                Method(_) | Declaration(Type(_)) => {}
+            }
+        }
+        Ok(())
     }
 
     fn compile_top_level_functions(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
@@ -77,23 +110,23 @@ impl Compiler {
 }
 
 pub struct Function {
-    code: Vec<Opcode>,
-    consts: Vec<Primitive>,
+    code: IdVec<CodeOffset, Opcode>,
+    consts: IdVec<ConstId, Primitive>,
 }
 
 pub struct FunctionCompiler<'env, 'func> {
     env: &'env mut Environment,
     decl: &'func ast::FunctionDecl,
-    code: Vec<Opcode>,
-    consts: Vec<Primitive>,
+    code: IdVec<CodeOffset, Opcode>,
+    consts: IdVec<ConstId, Primitive>,
 }
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn new(env: &'env mut Environment, decl: &'func ast::FunctionDecl) -> FunctionCompiler<'env, 'func> {
         FunctionCompiler {
             env, decl,
-            code: Vec::new(),
-            consts: Vec::new(),
+            code: IdVec::new(),
+            consts: IdVec::new(),
         }
     }
 
@@ -114,8 +147,17 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct CodeOffset(u32);
+impl_id!(CodeOffset);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct LocalId(u32);
+impl_id!(LocalId);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ConstId(u32);
+impl_id!(ConstId);
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn emit(&mut self, opcode: Opcode) -> CodeOffset {

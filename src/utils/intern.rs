@@ -38,6 +38,17 @@ pub struct Atom {
     _phantom: PhantomData<*const str>,
 }
 
+impl Atom {
+    pub fn as_str(&self) -> &str {
+        with_interner(|interner| {
+            let s = interner.resolve(*self).unwrap();
+            unsafe {
+                mem::transmute::<_, &'static str>(s)
+            }
+        })
+    }
+}
+
 impl Symbol for Atom {
     fn from_usize(val: usize) -> Self {
         Atom {
@@ -69,12 +80,7 @@ impl Deref for Atom {
 
 impl AsRef<str> for Atom {
     fn as_ref(&self) -> &str {
-        with_interner(|interner| {
-            let s = interner.resolve(*self).unwrap();
-            unsafe {
-                mem::transmute::<_, &'static str>(s)
-            }
-        })
+        self.as_str()
     }
 }
 
@@ -93,7 +99,13 @@ impl PartialEq for Atom {
 
 impl PartialOrd for Atom {
     fn partial_cmp(&self, other: &Atom) -> Option<Ordering> {
-        <Self as AsRef<str>>::as_ref(self).partial_cmp(other)
+        self.as_str().partial_cmp(other.as_str())
+    }
+}
+
+impl<'a> PartialEq<&'a str> for Atom {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
     }
 }
 
