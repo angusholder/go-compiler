@@ -4,15 +4,15 @@ use ast;
 use utils::result::{ Span, CompileResult };
 use vm::Primitive;
 use utils::intern::Atom;
-use types::{ self, Type, TypeRegistry, TypeRef };
+use types::{self, Type, TypeRegistry, TypeId};
 
 pub enum DeclarationKind {
     Const {
-        ty: TypeRef,
+        ty: TypeId,
         val: Primitive,
     },
-    Var(TypeRef),
-    Type(TypeRef),
+    Var(TypeId),
+    Type(TypeId),
     // TODO: Package(PackageRef), Function
 }
 
@@ -89,16 +89,16 @@ impl Environment {
         scope.decls.insert(name, decl);
     }
 
-    pub fn get_type(&self, type_ref: TypeRef) -> &Type {
+    pub fn get_type(&self, type_ref: TypeId) -> &Type {
         self.type_registry.lookup(type_ref)
     }
 
-    pub fn insert_type(&mut self, ty: Type) -> TypeRef {
+    pub fn insert_type(&mut self, ty: Type) -> TypeId {
         self.type_registry.insert(ty)
     }
 }
 
-pub fn type_check(expr: &mut ast::Expr, env: &Environment) -> CompileResult<TypeRef> {
+pub fn type_check(expr: &mut ast::Expr, env: &Environment) -> CompileResult<TypeId> {
     use self::ast::ExprKind::*;
     match expr.kind {
         Binary { op, ref mut left, ref mut right } => {
