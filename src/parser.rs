@@ -130,7 +130,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn expect_string_lit(&mut self) -> CompileResult<String> {
+    fn expect_string_lit(&mut self) -> CompileResult<Atom> {
         let token = self.bump()?;
         if let TokenKind::StrLit(string) = token.kind {
             Ok(string)

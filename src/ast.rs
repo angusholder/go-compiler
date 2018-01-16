@@ -1,3 +1,5 @@
+use std::fmt::{ self, Display };
+
 use lexer::AssignOp;
 use utils::ptr::{ P, List };
 use utils::result::Span;
@@ -44,11 +46,44 @@ pub enum BinaryOp {
     AndNot,
 }
 
+impl Display for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::BinaryOp::*;
+        f.write_str(match *self {
+            LogOr => "||",
+            LogAnd => "&&",
+
+            // Relational op
+            Equals => "==",
+            NotEqual => "!=",
+            Less => "<",
+            LessOrEqual => "<=",
+            Greater => ">",
+            GreaterOrEqual => ">=",
+
+            // Add op
+            Add => "+",
+            Sub => "-",
+            Or => "|",
+            Xor => "^",
+
+            // Mul op
+            Mul => "*",
+            Div => "/",
+            Remainder => "%",
+            LShift => "<<",
+            RShift => ">>",
+            And => "&",
+            AndNot => "&^",
+        })
+    }
+}
+
 #[derive(Debug)]
 pub enum Literal {
     Int(u64),
     // TODO: Float, Imag, Rune
-    String(String),
+    String(Atom),
     Ident(Atom),
     // TODO: CompositeLit
     Function {
@@ -296,7 +331,7 @@ pub enum ImportAlias {
 #[derive(Debug)]
 pub struct ImportSpec {
     pub alias: ImportAlias,
-    pub path: String,
+    pub path: Atom,
 }
 
 #[derive(Debug)]

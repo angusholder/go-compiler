@@ -481,7 +481,7 @@ impl<'src> Lexer<'src> {
             '"' => {
                 let processed_literal = self.process_string_literal(start_index)?;
 
-                StrLit(Atom::from(&processed_literal))
+                StrLit(Atom::from(processed_literal.as_str()))
             }
             _ if is_ident_head(ch) => {
                 while self.iter.match_char_with(is_ident_tail) {
@@ -544,9 +544,9 @@ impl<'src> Lexer<'src> {
     fn process_string_literal(&mut self, start_index: usize) -> CompileResult<String> {
         let mut contents = String::new();
 
-        let get_next = |l: &mut Lexer| -> CompileResult<char> {
-            if let Some((_, ch)) = l.iter.next() {
-                Ok(ch)
+        let get_next = |l: &mut Lexer| -> CompileResult<(usize, char)> {
+            if let Some((i, ch)) = l.iter.next() {
+                Ok((i, ch))
             } else {
                 let span = Span::new(start_index, l.iter.offset());
                 return err!(span, "string literal terminated prematurely");
@@ -554,9 +554,9 @@ impl<'src> Lexer<'src> {
         };
 
         loop {
-            let ch = get_next(self)?;
+            let (i, ch) = get_next(self)?;
             if ch == '\\' {
-                let mapped_ch = match get_next(self)? {
+                let mapped_ch = match get_next(self)?.1 {
                     // \a   U+0007 alert or bell
                     'a' => char::from(0x7),
 
@@ -597,7 +597,7 @@ impl<'src> Lexer<'src> {
             }
         }
 
-        contents
+        Ok(contents)
     }
 
     pub fn offset(&self) -> usize {
