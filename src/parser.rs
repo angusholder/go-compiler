@@ -77,18 +77,6 @@ impl<'src> Parser<'src> {
         self.lookahead_stack.push_front(next);
     }
 
-    fn bump_if<R, F>(&mut self, f: F) -> CompileResult<Option<R>>
-        where F: FnOnce(Token) -> Result<R, Token>
-    {
-        match f(self.bump()?) {
-            Ok(r) => Ok(Some(r)),
-            Err(tok) => {
-                self.unbump(tok);
-                Ok(None)
-            }
-        }
-    }
-
     pub fn match_keyword(&mut self, keyword: Keyword) -> CompileResult<bool> {
         if self.token.kind == TokenKind::Keyword(keyword) {
             self.bump()?;
