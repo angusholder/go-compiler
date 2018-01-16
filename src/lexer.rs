@@ -146,7 +146,7 @@ impl AssignOp {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TokenKind {
     Keyword(Keyword),
     Assign(AssignOp),
@@ -189,7 +189,7 @@ pub enum TokenKind {
 
     Ident(Atom),
     Integer(u64),
-    StrLit(String),
+    StrLit(Atom),
 
     Eof,
 }
@@ -263,7 +263,7 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
 
             Ident(ref ident) => return f.write_str(ident),
             Integer(i) => return write!(f, "{}", i),
-            StrLit(ref s) => return f.write_str(s),
+            StrLit(s) => return write!(f, "{}", s),
 
             Eof => "<end of file>"
         };
@@ -479,49 +479,9 @@ impl<'src> Lexer<'src> {
                 }
             }
             '"' => {
-                let mut contents = String::new();
-                let mut escape = false;
+                let processed_literal = self.process_string_literal(start_index)?;
 
-                loop {
-                    let ch = if let Some((_, ch)) = self.iter.next() {
-                        ch
-                    } else {
-                        let span = Span::new(start_index, self.iter.offset());
-                        return err!(span, "string literal terminated prematurely");
-                    };
-
-                    let mapped_ch = match ch {
-                        'a' if escape => char::from(0x7), // \a   U+0007 alert or bell
-                        'b' if escape => char::from(0x8), // \b   U+0008 backspace
-                        'f' if escape => char::from(0xC), // \f   U+000C form feed
-                        'n' if escape => '\n', // \n   U+000A line feed or newline
-                        'r' if escape => '\r', // \r   U+000D carriage return
-                        't' if escape => '\t', // \t   U+0009 horizontal tab
-                        'v' if escape => char::from(0xB), // \v   U+000b vertical tab
-
-                        // \\   U+005c backslash
-                        '\\' if escape => '\\',
-                        '\\' if !escape => {
-                            escape = true;
-                            continue;
-                        }
-
-                        // \"   U+0022 double quote
-                        '"' if escape => '"',
-                        '"' if !escape => break,
-
-                        _ => {
-                            contents.push(ch);
-                            continue;
-                        }
-                    };
-
-                    contents.push(mapped_ch);
-
-                    escape = false;
-                }
-
-                StrLit(contents)
+                StrLit(Atom::from(&processed_literal))
             }
             _ if is_ident_head(ch) => {
                 while self.iter.match_char_with(is_ident_tail) {
@@ -579,6 +539,65 @@ impl<'src> Lexer<'src> {
             }
         }
         passed_line
+    }
+
+    fn process_string_literal(&mut self, start_index: usize) -> CompileResult<String> {
+        let mut contents = String::new();
+
+        let get_next = |l: &mut Lexer| -> CompileResult<char> {
+            if let Some((_, ch)) = l.iter.next() {
+                Ok(ch)
+            } else {
+                let span = Span::new(start_index, l.iter.offset());
+                return err!(span, "string literal terminated prematurely");
+            }
+        };
+
+        loop {
+            let ch = get_next(self)?;
+            if ch == '\\' {
+                let mapped_ch = match get_next(self)? {
+                    // \a   U+0007 alert or bell
+                    'a' => char::from(0x7),
+
+                    // \b   U+0008 backspace
+                    'b' => char::from(0x8),
+
+                    // \f   U+000C form feed
+                    'f' => char::from(0xC),
+
+                    // \n   U+000A line feed or newline
+                    'n' => '\n',
+
+                    // \r   U+000D carriage return
+                    'r' => '\r',
+
+                    // \t   U+0009 horizontal tab
+                    't' => '\t',
+
+                    // \v   U+000b vertical tab
+                    'v' => char::from(0xB),
+
+                    // \\   U+005c backslash
+                    '\\' => '\\',
+
+                    // \"   U+0022 double quote
+                    '"' => '"',
+
+                    ch2 => {
+                        let span = Span::new(i, self.iter.offset());
+                        return err!(span, "unknown escape sequence '\\{}'", ch2);
+                    }
+                };
+                contents.push(mapped_ch);
+            } else if ch == '"' {
+                break;
+            } else {
+                contents.push(ch);
+            }
+        }
+
+        contents
     }
 
     pub fn offset(&self) -> usize {
