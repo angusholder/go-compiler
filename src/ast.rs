@@ -1,6 +1,6 @@
 use std::fmt::{ self, Display };
 
-use lexer::AssignOp;
+use token::AssignOp;
 use utils::ptr::{ P, List };
 use utils::result::Span;
 use utils::result::HasSpan;

@@ -15,6 +15,7 @@ extern crate string_interner;
 
 #[macro_use]
 mod utils;
+mod token;
 mod lexer;
 mod ast;
 mod parser;

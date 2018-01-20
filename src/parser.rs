@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 use std::mem;
 
 use ast::*;
-use lexer::{ Lexer, Token, TokenKind, Keyword, AssignOp };
+use lexer::Lexer;
+use token::{ Token, TokenKind, Keyword, AssignOp };
 use utils::ptr::{ List, P };
 use utils::result::{ CompileResult, Span, HasSpan };
 use utils::id::Id;
