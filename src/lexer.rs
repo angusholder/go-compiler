@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use utils::chars::PeekableCharIndices;
-use utils::result::{ CompileResult, Span, HasSpan };
+use utils::result::{ CompileResult, Span };
 use utils::intern::Atom;
 use token::*;
 
@@ -274,13 +274,13 @@ impl<'src> Lexer<'src> {
             if ch == '\\' {
                 let mapped_ch = match get_next(self)?.1 {
                     // \a   U+0007 alert or bell
-                    'a' => char::from(0x7),
+                    'a' => 0x7 as char,
 
                     // \b   U+0008 backspace
-                    'b' => char::from(0x8),
+                    'b' => 0x8 as char,
 
                     // \f   U+000C form feed
-                    'f' => char::from(0xC),
+                    'f' => 0xC as char,
 
                     // \n   U+000A line feed or newline
                     'n' => '\n',
@@ -292,7 +292,7 @@ impl<'src> Lexer<'src> {
                     't' => '\t',
 
                     // \v   U+000b vertical tab
-                    'v' => char::from(0xB),
+                    'v' => 0xB as char,
 
                     // \\   U+005c backslash
                     '\\' => '\\',
