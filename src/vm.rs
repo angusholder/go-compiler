@@ -1,4 +1,4 @@
-use num_traits::PrimInt;
+use num_traits::{ PrimInt, WrappingAdd, WrappingSub, WrappingMul };
 
 #[derive(Clone, Copy)]
 pub enum Opcode {
@@ -38,21 +38,23 @@ pub enum IntegerBinaryOp {
 }
 
 impl IntegerBinaryOp {
-    fn execute<T: PrimInt>(self, a: T, b: T) -> T {
+    fn execute<T>(self, a: T, b: T) -> T
+    where T: PrimInt + WrappingAdd + WrappingSub + WrappingMul
+    {
         use self::IntegerBinaryOp::*;
         match self {
-            Eq =>   T::from((a == b) as u8).unwrap(),
-            NEq =>  T::from((a != b) as u8).unwrap(),
-            Lt =>   T::from((a <  b) as u8).unwrap(),
+            Eq   => T::from((a == b) as u8).unwrap(),
+            NEq  => T::from((a != b) as u8).unwrap(),
+            Lt   => T::from((a <  b) as u8).unwrap(),
             LtEq => T::from((a <= b) as u8).unwrap(),
-            Gt =>   T::from((a >  b) as u8).unwrap(),
+            Gt   => T::from((a >  b) as u8).unwrap(),
             GtEq => T::from((a >= b) as u8).unwrap(),
-            Add => a + b,
-            Sub => a - b,
-            Or => a | b,
+            Add => a.wrapping_add(&b),
+            Sub => a.wrapping_sub(&b),
+            Or  => a | b,
             Xor => a ^ b,
-            Mul => a * b,
-            Div => a / b,
+            Mul => a.wrapping_mul(&b),
+            Div => a.checked_div(&b).expect("Divide by zero unhandled"),
             Rem => a % b,
             Shl => a << b.to_usize().unwrap(),
             Shr => a >> b.to_usize().unwrap(),
