@@ -10,6 +10,7 @@ pub fn P<T>(t: T) -> P<T> {
     Box::new(t)
 }
 
+#[derive(Clone)]
 pub struct List<T> {
     inner: Box<[T]>,
 }

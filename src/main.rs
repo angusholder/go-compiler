@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 extern crate num_traits;
 extern crate vec_map;
 extern crate smallvec;

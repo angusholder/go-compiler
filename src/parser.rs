@@ -68,7 +68,7 @@ impl<'src> Parser<'src> {
         } else {
             self.lexer.next()?
         };
-        self.prev_span = token.span;
+        self.prev_span = self.token.span;
         Ok(mem::replace(&mut self.token, token))
     }
 
@@ -141,6 +141,8 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Create a span starting from the beginning of the given span, and ending at the end of the
+    /// span of the last token consumed.
     fn span_from<T: HasSpan>(&self, has_span: &T) -> Span {
         Span::between(has_span.span(), self.prev_span)
     }
@@ -149,6 +151,35 @@ impl<'src> Parser<'src> {
         let id = ExprId::from_usize(self.expr_id);
         self.expr_id += 1;
         Expr::new(kind, span, id)
+    }
+}
+
+/// Invariant: either `ident` or `ty` or both should be `Some`.
+struct ParameterDecl {
+    kind: ParameterDeclKind,
+    span: Span,
+}
+
+enum ParameterDeclKind {
+    /// (a, b int)
+    ///  ^
+    Name {
+        name: Atom,
+    },
+
+    /// (int, string)
+    ///  ^^^
+    Type {
+        ty: P<Type >,
+        ellipsis: bool,
+    },
+
+    /// (a, b int)
+    ///     ^^^^^
+    NameAndType {
+        name: Atom,
+        ty: P<Type>,
+        ellipsis: bool,
     }
 }
 
@@ -195,33 +226,6 @@ impl<'src> Parser<'src> {
         Ok(Some(decl))
     }
 
-    fn parse_parameter_decl(&mut self) -> CompileResult<Option<ParameterDecl>> {
-        let idents: Option<List<Atom>>;
-
-        if let Some(ident) = self.match_ident()? {
-            let mut list = vec![ident];
-            while self.match_token(TokenKind::Comma)? {
-                list.push(self.expect_ident()?);
-            }
-            idents = Some(list.into());
-        } else {
-            idents = None;
-        }
-
-        let ellipsis = self.match_token(TokenKind::Ellipsis)?;
-        let ty = self.parse_opt_type()?;
-
-        if let Some(ty) = ty {
-            Ok(Some(ParameterDecl {
-                idents: idents.into(),
-                ellipsis,
-                ty,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
     fn parse_func(&mut self) -> CompileResult<FunctionDecl> {
         let name = self.expect_ident()?;
         self.expect_token(TokenKind::LParen)?;
@@ -234,7 +238,64 @@ impl<'src> Parser<'src> {
         Ok(FunctionDecl { name, sig, body })
     }
 
-    fn parse_parameter_list(&mut self) -> CompileResult<List<ParameterDecl>> {
+    /// Parse a single parameter with the grammar `[ Identifier ] [ "..." ] Type`
+    /// This may have no type if the type is specified with a later parameter; for example
+    /// `(a, b int)` parses to two separate `ParameterDecl`s: `a` with unknown type, and `b` with
+    /// type `int`.
+    ///
+    /// Unnamed parameters whose type is just an identifier (eg: `(int, float32)`) will erroneously
+    /// parse as having their types in the `ident` field. This is fixed up later when we have the
+    /// complete list of parameters, and can see that this isn't a list of parameter names.
+    /// For example: `(int, float32 string)` is a valid named-parameter list, and we can't know it's
+    /// named until reaching the end.
+    fn parse_parameter_decl(&mut self) -> CompileResult<Option<ParameterDecl>> {
+        let start_span = self.token.span;
+        let ident = self.match_ident()?;
+        let ellipsis = self.match_token(TokenKind::Ellipsis)?;
+        let ty = self.parse_opt_type()?;
+        let span = self.span_from(&start_span);
+
+        let kind = match (ident, ty) {
+            (Some(name), None) => {
+                if ellipsis {
+                    return err!(span, "variadic parameter missing type");
+                }
+
+                // We could be looking at an unnamed parameter `(some_package.SomeType)` and have
+                // eagerly swallowed the package name as a parameter name, so backtrack here
+                if self.token.kind != TokenKind::Comma && self.token.kind != TokenKind::RParen {
+                    // Reconstruct the token we got from `match_ident` above
+                    let token = Token {
+                        span: self.prev_span,
+                        kind: TokenKind::Ident(name)
+                    };
+
+                    // Push the token back on top of the token stream
+                    self.unbump(token);
+
+                    // Starting from the token, reparse token stream treating it as a type
+                    let ty = self.parse_type()?;
+
+                    ParameterDeclKind::Type { ty, ellipsis: false }
+                } else {
+                    ParameterDeclKind::Name { name }
+                }
+            },
+            (Some(name), Some(ty)) => ParameterDeclKind::NameAndType { name, ty, ellipsis },
+            (None, Some(ty)) => ParameterDeclKind::Type { ty, ellipsis },
+            (None, None) => {
+                if ellipsis {
+                    return err!(span, "variadic parameter missing type");
+                } else {
+                    return Ok(None);
+                }
+            }
+        };
+
+        Ok(Some(ParameterDecl { kind, span }))
+    }
+
+    fn parse_parameter_decls(&mut self) -> CompileResult<Vec<ParameterDecl>> {
         let mut params = Vec::new();
 
         if !self.match_token(TokenKind::RParen)? {
@@ -251,18 +312,122 @@ impl<'src> Parser<'src> {
             }
         }
 
-        Ok(params.into())
+        Ok(params)
+    }
+
+    fn parse_parameters(&mut self) -> CompileResult<Parameters> {
+        let param_decls = self.parse_parameter_decls()?;
+
+        if param_decls.len() == 0 {
+            return Ok(Parameters::Named {
+                params: vec![].into(),
+                vararg: None,
+            });
+        }
+
+        // If it is an unnamed parameter, we will go on the assumption that all the other
+        // parameters are unnamed, and if they break this assumption we throw an error.
+        // Unwrap because we know we have at least 1 parameter thanks to above.
+        let assume_unnamed_arguments = match param_decls.last().unwrap().kind {
+            ParameterDeclKind::Name { .. } | ParameterDeclKind::Type { .. } => true,
+            ParameterDeclKind::NameAndType { .. } => false,
+        };
+
+        if assume_unnamed_arguments {
+            self.parse_parameters_as_unnamed(param_decls)
+        } else {
+            self.parse_parameters_as_named(param_decls)
+        }
+    }
+
+    fn parse_parameters_as_named(&mut self, decls: Vec<ParameterDecl>) -> CompileResult<Parameters> {
+        let mut params: Vec<NamedParameter> = Vec::with_capacity(decls.len());
+        let mut vararg: Option<NamedParameter> = None;
+
+        // Invariant: the caller ensures the kind of the last `ParameterDecl` is `NameAndType`.
+        let mut index_of_last_type_seen: Option<usize> = None;
+        for (i, param_decl) in decls.into_iter().rev().enumerate() {
+            match param_decl.kind {
+                ParameterDeclKind::Name { name } => {
+                    if let Some(index) = index_of_last_type_seen {
+                        let ty = params[index].ty.clone();
+                        params.push(NamedParameter { name, ty, span: param_decl.span });
+                    } else {
+                        // The only reason for `index_of_last_type_seen` to be `None` is if the
+                        // only parameter we've seen before now was a vararg, as the caller ensures
+                        // that last was of kind `NameAndType`, so it can't be a `Name` that
+                        // preceded.
+                        return err!(param_decl.span, "can only use ... with final parameter");
+                    }
+                }
+                ParameterDeclKind::NameAndType { name, ty, ellipsis } => {
+                    if ellipsis {
+                        if vararg.is_some() || !params.is_empty() {
+                            return err!(param_decl.span, "can only use ... with final parameter");
+                        } else {
+                            vararg = Some(NamedParameter { name, ty, span: param_decl.span });
+                        }
+                    } else {
+                        debug_assert!(i == params.len());
+                        params.push(NamedParameter { name, ty, span: param_decl.span });
+                        index_of_last_type_seen = Some(i);
+                    }
+                }
+                ParameterDeclKind::Type { ty, ellipsis } => {
+                    return err!(param_decl.span, "mixed named and unnamed parameters");
+                }
+            }
+        }
+
+        Ok(Parameters::Named { params: params.into(), vararg })
+    }
+
+    fn parse_parameters_as_unnamed(&mut self, decls: Vec<ParameterDecl>) -> CompileResult<Parameters> {
+        let mut params = Vec::with_capacity(decls.len());
+        let mut vararg: Option<UnnamedParameter> = None;
+
+        for param_decl in decls.into_iter().rev() {
+            match param_decl.kind {
+                ParameterDeclKind::Type { ty, ellipsis } => {
+                    if ellipsis {
+                        if vararg.is_some() || !params.is_empty() {
+                            return err!(param_decl.span, "can only use ... with final parameter");
+                        } else {
+                            vararg = Some(UnnamedParameter { ty, span: param_decl.span });
+                        }
+                    } else {
+                        params.push(UnnamedParameter { ty, span: param_decl.span });
+                    }
+                }
+                ParameterDeclKind::Name { name } => {
+                    let ty = P(Type::TypeName { ident: name, package: None });
+                    params.push(UnnamedParameter { ty, span: param_decl.span });
+                }
+                ParameterDeclKind::NameAndType { .. } => {
+                    return err!(param_decl.span, "mixed named and unnamed parameters");
+                }
+            }
+        }
+
+        Ok(Parameters::Unnamed { params: params.into(), vararg })
     }
 
     fn parse_signature(&mut self) -> CompileResult<Signature> {
-        let params = self.parse_parameter_list()?;
+        let params = self.parse_parameters()?;
 
         let result = if self.match_token(TokenKind::LParen)? {
-            FuncResult::Many(self.parse_parameter_list()?)
+            self.parse_parameters()?
         } else if let Some(ty) = self.parse_opt_type()? {
-            FuncResult::One(ty)
+            let param = UnnamedParameter { ty, span: self.prev_span };
+            Parameters::Unnamed {
+                params: vec![param].into(),
+                vararg: None,
+            }
         } else {
-            FuncResult::None
+            Parameters::Named {
+                params: vec![].into(),
+                vararg: None,
+            }
         };
 
         Ok(Signature { params, result })
@@ -307,17 +472,20 @@ impl<'src> Parser<'src> {
                 let elem_ty = self.parse_type()?;
                 P(Type::TypeLit(TypeLit::MapType { key_ty, elem_ty }))
             }
-            token @ TokenKind::Keyword(Keyword::Chan) | token @ TokenKind::SendReceive => {
-                let direction: ChannelDirection;
-                if token == TokenKind::SendReceive {
-                    self.expect_keyword(Keyword::Chan)?;
-                    direction = ChannelDirection::Receive;
-                } else if self.match_token(TokenKind::SendReceive)? {
-                    direction = ChannelDirection::Send;
+            TokenKind::Keyword(Keyword::Chan) => {
+                let direction = if self.match_token(TokenKind::SendReceive)? {
+                    ChannelDirection::Send
                 } else {
-                    direction = ChannelDirection::BiDirectional;
-                }
+                    ChannelDirection::BiDirectional
+                };
 
+                let elem_ty = self.parse_type()?;
+
+                P(Type::TypeLit(TypeLit::ChannelType { direction, elem_ty }))
+            }
+            TokenKind::SendReceive => {
+                self.expect_keyword(Keyword::Chan)?;
+                let direction = ChannelDirection::Receive;
                 let elem_ty = self.parse_type()?;
 
                 P(Type::TypeLit(TypeLit::ChannelType { direction, elem_ty }))
@@ -531,7 +699,8 @@ impl<'a> Parser<'a> {
         };
 
         let token = self.bump()?;
-        nud(self, token, bp).map(Some)
+        let expr = nud(self, token, bp)?;
+        Ok(Some(expr))
     }
 
     fn parse_left(&mut self, min_rbp: i32, node: Expr) -> CompileResult<Expr> {
@@ -636,13 +805,13 @@ impl<'src> Parser<'src> {
         use self::TokenKind::Keyword;
         let decl = match token.kind {
             Keyword(Var) => {
-                Declaration::Var(self.parse_decl_body(Parser::parse_var_spec)?.into())
+                Declaration::Var(self.parse_decl_body(Self::parse_var_spec)?)
             }
             Keyword(Type) => {
-                Declaration::Type(self.parse_decl_body(Parser::parse_type_spec)?.into())
+                Declaration::Type(self.parse_decl_body(Self::parse_type_spec)?)
             }
             Keyword(Const) => {
-                Declaration::Const(self.parse_decl_body(Parser::parse_const_spec)?.into())
+                Declaration::Const(self.parse_decl_body(Self::parse_const_spec)?)
             }
             _ => {
                 return err!(token, "expected declaration, got {}", token);
@@ -651,8 +820,7 @@ impl<'src> Parser<'src> {
         Ok(decl)
     }
 
-    fn parse_decl_body<R>(&mut self, f: fn(&mut Parser<'src>) -> CompileResult<R>) -> CompileResult<List<R>>
-    {
+    fn parse_decl_body<R>(&mut self, f: fn(&mut Parser<'src>) -> CompileResult<R>) -> CompileResult<List<R>> {
         if self.match_token(TokenKind::LParen)? {
             let mut result = Vec::new();
             while !self.match_token(TokenKind::RParen)? {
@@ -952,4 +1120,87 @@ impl<'src> Parser<'src> {
 
 pub fn parse(src: &str) -> CompileResult<SourceFile> {
     Parser::new(src)?.parse()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_signatures() {
+        // TODO: Fix these :(
+        use super::Parser;
+        use ast::*;
+        use utils::ptr::P;
+        use utils::intern::Atom;
+
+        fn signature_parse_success(source: &str, expected: Parameters) {
+            let res = Parser::new(source)
+                .and_then(|mut p| p.parse_parameters());
+            match res {
+                Ok(got) => {
+                    if got != expected {
+                        panic!("expected Ok({:#?}), got Ok({:#?})", expected, got);
+                    }
+                }
+                Err(e) => panic!("expected Ok({:#?}), got {}", expected, e.fmt(source))
+            }
+        }
+
+        fn signature_parse_error(source: &str) {
+            let res = Parser::new(source)
+                .and_then(|mut p|p.parse_parameters());
+            if let Ok(res) = res {
+                panic!("expected parse error, got {:?}", res);
+            }
+        }
+
+        fn make_type_name(name: &str) -> P<Type> {
+            P(Type::TypeName { ident: Atom::from(name), package: None })
+        }
+
+
+
+        signature_parse_success(")", Parameters::Named {
+            params: vec![].into(),
+            vararg: None,
+        });
+
+        signature_parse_success("int)", Parameters::Unnamed {
+            params: vec![make_type_name("int")].into(),
+            vararg: None,
+        });
+
+        signature_parse_success("int, ...string)", Parameters::Unnamed {
+            params: vec![make_type_name("int")].into(),
+            vararg: Some(make_type_name("string")),
+        });
+
+        signature_parse_success("int,a,b int)", Parameters::Named {
+            params: vec![NamedParameter {
+                name: vec![Atom::from("int"), Atom::from("a"), Atom::from("b")],
+                ty: make_type_name("int"),
+            }],
+            vararg: None,
+        });
+
+        // mixed named and unnamed function parameters
+        signature_parse_error("a int, int)");
+
+        // mixed named and unnamed function parameters
+        signature_parse_error("os.File, a int)");
+
+        // variadic argument missing name and type
+        signature_parse_error("...)");
+
+        // variadic argument missing name and type
+        signature_parse_error("a int, ...)");
+
+        // variadic argument missing type
+        signature_parse_error("a ...)");
+
+        // only final argument may be variadic
+        signature_parse_error("a ...string, b ...int)");
+
+        // only final argument may be variadic
+        signature_parse_error("a, b ...string)");
+    }
 }

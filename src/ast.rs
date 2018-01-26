@@ -79,7 +79,7 @@ impl Display for BinaryOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     Int(u64),
     // TODO: Float, Imag, Rune
@@ -96,7 +96,7 @@ pub enum Literal {
 pub struct ExprId(u32);
 impl_id!(ExprId);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
@@ -115,7 +115,7 @@ impl HasSpan for Expr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     Literal(Literal),
     Unary {
@@ -162,14 +162,14 @@ pub enum ExprKind {
 pub type Label = Atom;
 pub type Block = List<Stmt>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IfStmtTail {
     None,
     ElseIf(P<IfStmt>),
     Block(Block),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IfStmt {
     pub pre_stmt: Option<SimpleStmt>,
     pub cond: P<Expr>,
@@ -177,13 +177,13 @@ pub struct IfStmt {
     pub els: IfStmtTail,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RangeClauseLeft {
     Exprs(List<Expr>),
     Idents(List<Atom>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ForStmtHeader {
     Always,
     Condition(P<Expr>),
@@ -195,19 +195,19 @@ pub enum ForStmtHeader {
     RangeClause(RangeClause),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RangeClause {
     pub left: RangeClauseLeft,
     pub right: P<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ForStmt {
     pub header: ForStmtHeader,
     pub body: Block,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SimpleStmt {
     Expr(P<Expr>),
     Send {
@@ -228,7 +228,7 @@ pub enum SimpleStmt {
     RangeClause(RangeClause),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConstSpec {
     pub idents: List<Atom>,
     pub ty: Option<P<Type>>,
@@ -241,7 +241,7 @@ pub enum TypeSpecKind {
     TypeDef,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeSpec {
     pub kind: TypeSpecKind,
     pub ident: Atom,
@@ -249,21 +249,21 @@ pub struct TypeSpec {
 }
 
 /// Invariant: either `ty` or `exprs` must be `Some`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VarSpec {
     pub idents: List<Atom>,
     pub ty: Option<P<Type>>,
     pub exprs: Option<List<Expr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Declaration {
     Const(List<ConstSpec>),
     Type(List<TypeSpec>),
     Var(List<VarSpec>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Declaration(Declaration),
     Labeled {
@@ -284,7 +284,7 @@ pub enum Stmt {
     Defer(P<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Type {
     TypeName {
         ident: Atom,
@@ -300,7 +300,7 @@ pub enum ChannelDirection {
     BiDirectional,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeLit {
     ArrayType {
         length: P<Expr>,
@@ -321,68 +321,88 @@ pub enum TypeLit {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ImportAlias {
     None,
     Splat,
     Name(Atom),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ImportSpec {
     pub alias: ImportAlias,
     pub path: Atom,
 }
 
-#[derive(Debug)]
-pub struct ParameterDecl {
-    pub idents: Option<List<Atom>>,
-    pub ellipsis: bool,
+#[derive(Debug, Clone)]
+pub struct NamedParameter {
+    pub name: Atom,
     pub ty: P<Type>,
+    pub span: Span,
 }
 
-#[derive(Debug)]
-pub enum FuncResult {
-    None,
-    One(P<Type>),
-    Many(List<ParameterDecl>),
+#[derive(Debug, Clone)]
+pub struct UnnamedParameter {
+    pub ty: P<Type>,
+    pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum Parameters {
+    Unnamed {
+        params: List<UnnamedParameter>,
+        vararg: Option<UnnamedParameter>,
+    },
+    Named {
+        params: List<NamedParameter>,
+        vararg: Option<NamedParameter>,
+    },
+}
+
+impl Parameters {
+    pub fn is_empty(&self) -> bool {
+        match *self {
+            Parameters::Unnamed { ref params, ref vararg } => params.is_empty() && vararg.is_none(),
+            Parameters::Named { ref params, ref vararg } => params.is_empty() && vararg.is_none(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Signature {
-    pub params: List<ParameterDecl>,
-    pub result: FuncResult,
+    pub params: Parameters,
+    pub result: Parameters,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionDecl {
     pub name: Atom,
     pub sig: Signature,
     pub body: Option<Block>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodDecl {
     // Invariants: must contain a single, non-variadic parameter with type of the form T or *T
-    pub receiver: ParameterDecl,
+    pub receiver: Parameters,
     pub name: Atom,
     pub sig: Signature,
     pub body: Option<Block>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TopLevelDecl {
     Declaration(Declaration),
     Function(FunctionDecl),
     Method(MethodDecl),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ImportDecl {
     pub decls: List<ImportSpec>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SourceFile {
     pub package_name: Atom,
 
