@@ -379,6 +379,8 @@ impl<'src> Parser<'src> {
             }
         }
 
+        params.reverse();
+
         Ok(Parameters::Named { params: params.into(), vararg })
     }
 
@@ -408,6 +410,8 @@ impl<'src> Parser<'src> {
                 }
             }
         }
+
+        params.reverse();
 
         Ok(Parameters::Unnamed { params: params.into(), vararg })
     }
@@ -1132,20 +1136,59 @@ mod tests {
         use utils::ptr::P;
         use utils::intern::Atom;
 
-        fn signature_parse_success(source: &str, expected: Parameters) {
+        fn expect_named(source: &str, exp_params: &[(Atom, P<Type>)], exp_vararg: Option<(Atom, P<Type>)>) {
             let res = Parser::new(source)
                 .and_then(|mut p| p.parse_parameters());
-            match res {
-                Ok(got) => {
-                    if got != expected {
-                        panic!("expected Ok({:#?}), got Ok({:#?})", expected, got);
-                    }
+
+            let success = match res {
+                Ok(Parameters::Named { ref params, ref vararg }) => {
+                    params.len() == exp_params.len() &&
+                        vararg.as_ref().map(|p| (p.name, p.ty.clone())) == exp_vararg &&
+                        params
+                            .iter()
+                            .zip(exp_params)
+                            .all(|(ref got, &(name, ref ty))| {
+                                got.name == name && got.ty == *ty
+                            })
                 }
-                Err(e) => panic!("expected Ok({:#?}), got {}", expected, e.fmt(source))
+                Ok(_) => false,
+                Err(e) => {
+                    panic!("expected params={:?}, vararg={:?}, got Err({})", exp_params, exp_vararg, e.fmt(source));
+                }
+            };
+
+            if !success {
+                panic!("expected params={:?}, vararg={:?}, got Ok({:#?})", exp_params, exp_vararg, res.unwrap());
             }
         }
 
-        fn signature_parse_error(source: &str) {
+        fn expect_unnamed(source: &str, exp_params: &[P<Type>], exp_vararg: Option<P<Type>>) {
+            let res = Parser::new(source)
+                .and_then(|mut p| p.parse_parameters());
+
+            let success = match res {
+                Ok(Parameters::Unnamed { ref params, ref vararg }) => {
+                    params.len() == exp_params.len() &&
+                        vararg.as_ref().map(|p| p.ty.clone()) == exp_vararg &&
+                        params
+                            .iter()
+                            .zip(exp_params)
+                            .all(|(ref got, ref ty)| {
+                                got.ty == **ty
+                            })
+                }
+                Ok(_) => false,
+                Err(e) => {
+                    panic!("expected params={:?}, vararg={:?}, got Err({})", exp_params, exp_vararg, e.fmt(source));
+                }
+            };
+
+            if !success {
+                panic!("expected params={:?}, vararg={:?}, got Ok({:#?})", exp_params, exp_vararg, res.unwrap());
+            }
+        }
+
+        fn expect_error(source: &str) {
             let res = Parser::new(source)
                 .and_then(|mut p|p.parse_parameters());
             if let Ok(res) = res {
@@ -1153,54 +1196,46 @@ mod tests {
             }
         }
 
-        fn make_type_name(name: &str) -> P<Type> {
+        fn make_type(name: &str) -> P<Type> {
             P(Type::TypeName { ident: Atom::from(name), package: None })
         }
 
 
+        let int = make_type("int");
+        let string = make_type("string");
 
-        signature_parse_success(")", Parameters::Named {
-            params: vec![].into(),
-            vararg: None,
-        });
 
-        signature_parse_success("int)", Parameters::Unnamed {
-            params: vec![make_type_name("int")].into(),
-            vararg: None,
-        });
+        expect_named(")", &[], None);
 
-        signature_parse_success("int, ...string)", Parameters::Unnamed {
-            params: vec![make_type_name("int")].into(),
-            vararg: Some(make_type_name("string")),
-        });
+        expect_unnamed("int)", &[int.clone()], None);
 
-        signature_parse_success("int,a,b int)", Parameters::Named {
-            params: vec![NamedParameter {
-                name: vec![Atom::from("int"), Atom::from("a"), Atom::from("b")],
-                ty: make_type_name("int"),
-            }],
-            vararg: None,
-        });
+        expect_unnamed("int, ...string)", &[int.clone()], Some(string.clone()));
+
+        expect_named("int,a,b int)", &[
+            (Atom::from("int"), int.clone()),
+            (Atom::from("a"), int.clone()),
+            (Atom::from("b"), int.clone()),
+        ], None);
 
         // mixed named and unnamed function parameters
-        signature_parse_error("a int, int)");
+        expect_error("a int, int)");
 
         // mixed named and unnamed function parameters
-        signature_parse_error("os.File, a int)");
+        expect_error("os.File, a int)");
 
         // variadic argument missing name and type
-        signature_parse_error("...)");
+        expect_error("...)");
 
         // variadic argument missing name and type
-        signature_parse_error("a int, ...)");
+        expect_error("a int, ...)");
 
         // variadic argument missing type
-        signature_parse_error("a ...)");
+        expect_error("a ...)");
 
         // only final argument may be variadic
-        signature_parse_error("a ...string, b ...int)");
+        expect_error("a ...string, b ...int)");
 
         // only final argument may be variadic
-        signature_parse_error("a, b ...string)");
+        expect_error("a, b ...string)");
     }
 }

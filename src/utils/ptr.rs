@@ -10,7 +10,7 @@ pub fn P<T>(t: T) -> P<T> {
     Box::new(t)
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct List<T> {
     inner: Box<[T]>,
 }

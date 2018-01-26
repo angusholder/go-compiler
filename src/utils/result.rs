@@ -2,6 +2,7 @@ use std::fmt;
 use std::fmt::Write;
 use std::u32;
 
+#[derive(Debug)]
 pub struct CompileError {
     pub msg: String,
     pub span: Span,
