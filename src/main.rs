@@ -4,6 +4,7 @@ extern crate num_traits;
 extern crate vec_map;
 extern crate smallvec;
 extern crate fnv;
+extern crate backtrace;
 
 // I tried modifying this to have just a single String, before realising that it would leave the
 // HashMap key InternalStrRef's pointer dangling when the String reallocates. The optimisation is

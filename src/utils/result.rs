@@ -1,3 +1,5 @@
+use backtrace::Backtrace;
+
 use std::fmt;
 use std::fmt::Write;
 use std::u32;
@@ -6,6 +8,7 @@ use std::u32;
 pub struct CompileError {
     pub msg: String,
     pub span: Span,
+    pub backtrace: Backtrace,
 }
 
 impl CompileError {
@@ -21,30 +24,39 @@ pub struct CompileErrorFormatter<'err, 'src> {
 
 impl<'err, 'src> fmt::Display for CompileErrorFormatter<'err, 'src> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let range = SourceRange::new(self.src, self.error.span);
-        writeln!(f, "[{},{}] error: {}", range.start.line, range.start.col, self.error.msg)?;
-        writeln!(f, "{}", range.fmt(self.src))
+        use std::env;
+        if env::var("RUST_BACKTRACE") == Ok("1".to_string()) {
+            writeln!(f, "Error backtrace: {:?}", self.error.backtrace);
+        }
+
+        // TODO: Improve this whole situation
+        if self.error.span.start != Span::INVALID.start && self.error.span.end != Span::INVALID.end {
+            let range = SourceRange::new(self.src, self.error.span);
+            writeln!(f, "[{},{}] error: {}", range.start.line, range.start.col, self.error.msg)?;
+            writeln!(f, "{}", range.fmt(self.src))?;
+        } else {
+            writeln!(f, "[-, -] error: {}", self.error.msg)?;
+            writeln!(f, "<No source range info available>")?;
+        }
+        Ok(())
     }
 }
 
 pub type CompileResult<T> = Result<T, CompileError>;
 
 macro_rules! err {
-    ($has_span:expr, $fmt:expr, $($arg:expr),+) => {{
+    ($has_span:expr, $fmt:expr, $($arg:expr),*) => {{
         use $crate::utils::result::{ CompileError, HasSpan };
+        use $crate::backtrace::Backtrace;
         let has_span: &HasSpan = &$has_span;
         let span = has_span.span();
-        let msg = format!($fmt, $($arg),+);
-        Err(CompileError { msg, span })
+        let msg = format!($fmt, $($arg),*);
+        Err(CompileError { msg, span, backtrace: Backtrace::new() })
     }};
 
-    ($has_span:expr, $fmt:expr) => {{
-        use $crate::utils::result::{ CompileError, HasSpan };
-        let has_span: &HasSpan = &$has_span;
-        let span = has_span.span();
-        let msg = $fmt.to_string();
-        Err(CompileError { msg, span })
-    }};
+    ($has_span:expr, $fmt:expr) => {
+        err!($has_span, $fmt,)
+    };
 }
 
 /// 0-based line and column numbers. Add 1 for formatting.
@@ -96,7 +108,12 @@ impl<'rng, 'src> SourceRangeFormatter<'rng, 'src> {
     fn get_source_range_context(&self) -> &str {
         let span = self.range.span;
         let start = self.src[..(span.start as usize)].rfind('\n').map(|n| n + 1).unwrap_or(0);
-        let end = (span.end as usize) + self.src[(span.end as usize)..].find('\n').unwrap_or(self.src.len());
+        let end = if let Some(pos) = self.src[(span.end as usize)..].find('\n') {
+            (span.end as usize) + pos
+        } else {
+            self.src.len()
+        };
+        println!("input = {:?}, output = {:?}", span, Span::new(start, end));
         &self.src[start..end]
     }
 }
@@ -106,10 +123,13 @@ impl<'rng, 'src> fmt::Display for SourceRangeFormatter<'rng, 'src> {
         let context = self.get_source_range_context();
         let lines = context.split('\n').collect::<Vec<&str>>();
 
-        let (start_line, end_line) = (self.range.start.line, self.range.end.line);
+        // Make them 1-based
+        let (start_line, end_line) = (self.range.start.line + 1, self.range.end.line + 1);
         let line_count = end_line - start_line + 1;
         assert!(lines.len() == line_count as usize);
 
+        // log10(0) = infinity, filling up the process memory
+        assert!(end_line > 0);
         let width = (end_line as f32).log10().ceil() as usize;
 
         for (line, line_num) in lines.iter().zip(start_line..end_line + 1) {

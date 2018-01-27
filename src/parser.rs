@@ -26,7 +26,7 @@ impl<'src> Parser<'src> {
                 kind: TokenKind::Eof,
                 span: Span::INVALID,
             },
-            prev_span: Span::INVALID,
+            prev_span: Span::new(0, 0),
             expr_id: 0,
         };
         parser.bump()?;
@@ -315,7 +315,7 @@ impl<'src> Parser<'src> {
         Ok(params)
     }
 
-    fn parse_parameters(&mut self) -> CompileResult<Parameters> {
+    pub fn parse_parameters(&mut self) -> CompileResult<Parameters> {
         let param_decls = self.parse_parameter_decls()?;
 
         if param_decls.len() == 0 {
@@ -346,7 +346,13 @@ impl<'src> Parser<'src> {
 
         // Invariant: the caller ensures the kind of the last `ParameterDecl` is `NameAndType`.
         let mut index_of_last_type_seen: Option<usize> = None;
-        for (i, param_decl) in decls.into_iter().rev().enumerate() {
+        for (mut i, param_decl) in decls.into_iter().rev().enumerate() {
+            // If we've seen a vararg, `params` will have one less member than the number of
+            // `ParameterDecl`s we receive.
+            if vararg.is_some() {
+                i -= 1;
+            }
+
             match param_decl.kind {
                 ParameterDeclKind::Name { name } => {
                     if let Some(index) = index_of_last_type_seen {
@@ -368,7 +374,7 @@ impl<'src> Parser<'src> {
                             vararg = Some(NamedParameter { name, ty, span: param_decl.span });
                         }
                     } else {
-                        debug_assert!(i == params.len());
+                        debug_assert_eq!(i, params.len());
                         params.push(NamedParameter { name, ty, span: param_decl.span });
                         index_of_last_type_seen = Some(i);
                     }
@@ -1130,7 +1136,6 @@ pub fn parse(src: &str) -> CompileResult<SourceFile> {
 mod tests {
     #[test]
     fn parse_signatures() {
-        // TODO: Fix these :(
         use super::Parser;
         use ast::*;
         use utils::ptr::P;
@@ -1188,11 +1193,19 @@ mod tests {
             }
         }
 
-        fn expect_error(source: &str) {
+        fn expect_error(source: &str, pattern: &str) {
             let res = Parser::new(source)
                 .and_then(|mut p|p.parse_parameters());
-            if let Ok(res) = res {
-                panic!("expected parse error, got {:?}", res);
+            match res {
+                Ok(res) => {
+                    panic!("expected parse error, got {:?}", res);
+                }
+                Err(e) => {
+                    if !e.msg.contains(pattern) {
+                        panic!("expected error message containing \"{}\", got {}",
+                            pattern, e.fmt(source));
+                    }
+                }
             }
         }
 
@@ -1217,25 +1230,27 @@ mod tests {
             (Atom::from("b"), int.clone()),
         ], None);
 
-        // mixed named and unnamed function parameters
-        expect_error("a int, int)");
+        expect_named("a, b int, c, d string, e ...string)", &[
+            (Atom::from("a"), int.clone()),
+            (Atom::from("b"), int.clone()),
+            (Atom::from("c"), string.clone()),
+            (Atom::from("d"), string.clone()),
+        ], Some((Atom::from("e"), string.clone())));
 
-        // mixed named and unnamed function parameters
-        expect_error("os.File, a int)");
+        expect_error("a int, int)", "mixed named and unnamed parameters");
 
-        // variadic argument missing name and type
-        expect_error("...)");
+        expect_error("os.File, a int)", "mixed named and unnamed parameters");
 
-        // variadic argument missing name and type
-        expect_error("a int, ...)");
+        expect_error("...)", "variadic parameter missing type");
 
-        // variadic argument missing type
-        expect_error("a ...)");
+        expect_error("a int, ...)", "variadic parameter missing type");
 
-        // only final argument may be variadic
-        expect_error("a ...string, b ...int)");
+        expect_error("a int, ...string)", "mixed named and unnamed parameters");
 
-        // only final argument may be variadic
-        expect_error("a, b ...string)");
+        expect_error("a ...)", "variadic parameter missing type");
+
+        expect_error("a ...string, b ...int)", "can only use ... with final parameter");
+
+        expect_error("a, b ...string)", "can only use ... with final parameter");
     }
 }
