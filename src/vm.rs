@@ -9,6 +9,7 @@ pub enum Opcode {
     LoadConst(u32),
     LoadLocal(u32),
     StoreLocal(u32),
+    Pop,
 }
 
 #[derive(Clone, Copy)]
@@ -97,15 +98,15 @@ pub enum PrimitiveType {
 
 #[derive(Clone, Copy)]
 pub union Primitive {
-    u8: u8,
-    u16: u16,
-    u32: u32,
-    u64: u64,
+    pub u8: u8,
+    pub u16: u16,
+    pub u32: u32,
+    pub u64: u64,
 
-    i8: i8,
-    i16: i16,
-    i32: i32,
-    i64: i64,
+    pub i8: i8,
+    pub i16: i16,
+    pub i32: i32,
+    pub i64: i64,
 }
 
 impl Primitive {

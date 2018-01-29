@@ -23,7 +23,7 @@ mod lexer;
 mod ast;
 mod parser;
 mod types;
-mod type_check;
+mod scope;
 mod compiler;
 mod vm;
 

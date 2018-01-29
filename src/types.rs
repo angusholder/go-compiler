@@ -1,7 +1,7 @@
 use utils::id::IdVecMap;
 use vm::PrimitiveType;
 use utils::intern::Atom;
-use type_check::Environment;
+use scope::Environment;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct TypeId(u32);
