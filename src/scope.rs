@@ -4,6 +4,7 @@ use utils::result::Span;
 use vm::Primitive;
 use utils::intern::Atom;
 use types::{ Type, TypeRegistry, TypeId, UntypedConstant };
+use compiler::LocalId;
 
 pub enum DeclarationKind {
     Const {
@@ -22,6 +23,7 @@ pub struct Declaration {
 
 pub struct VarDecl {
     pub ty: TypeId,
+    pub id: LocalId,
 }
 
 struct Scope {

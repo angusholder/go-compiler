@@ -634,7 +634,7 @@ fn left_binary_op(p: &mut Parser, token: Token, left: Expr, rbp: i32) -> Compile
         TokenKind::LessOrEqual => BinaryOp::LessOrEqual,
         TokenKind::Greater => BinaryOp::Greater,
         TokenKind::GreaterOrEqual => BinaryOp::GreaterOrEqual,
-        TokenKind::Equals => BinaryOp::Equals,
+        TokenKind::Equals => BinaryOp::Equal,
         TokenKind::NotEqual => BinaryOp::NotEqual,
 
         TokenKind::LogAnd => BinaryOp::LogAnd,

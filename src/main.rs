@@ -31,25 +31,24 @@ fn main() {
     let src = r#"
 package main
 
-import "fmt"
-import ("hello"; "goodbye";)
-
 func main() {
-    running := true
+    a := 4
+    b := 7
+    c := 1
 
-    for {}
-    for running {}
-    for a := 1; a < 10; a++ {}
-    for a, b := 1, 1; a < 100; a, b = a + b, a {}
-    for i, ch := range "hello world" {}
-
-    fmt.Printf("hello, world\n")
+    root1 := (0-b) + (b*b - 4*a*c) / (2*a)
+//    root2 := (0-b) - (b*b - 4*a*c) / (2*a)
 }
 "#;
+    let res = parser::parse(src).and_then(|source_file| {
+        compiler::Compiler::new().compile(&source_file)
+    });
 
-    match parser::parse(src) {
-        Ok(source_file) => {
-            println!("{:#?}", source_file);
+    match res {
+        Ok(func) => {
+            for opcode in func.code.into_vec() {
+                println!("{:#?}", opcode);
+            }
         }
         Err(e) => {
             println!("{}", e.fmt(src));

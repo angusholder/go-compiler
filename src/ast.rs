@@ -19,29 +19,30 @@ pub enum UnaryOp {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BinaryOp {
+    // Logical
     LogOr,
     LogAnd,
 
-    // Relational op
-    Equals,
+    // Comparison
+    Equal,
     NotEqual,
     Less,
     LessOrEqual,
     Greater,
     GreaterOrEqual,
 
-    // Add op
+    // Arithmetic
     Add,
     Sub,
-    Or,
-    Xor,
-
-    // Mul op
     Mul,
     Div,
     Remainder,
+
+    // Bitwise
     LShift,
     RShift,
+    Or,
+    Xor,
     And,
     AndNot,
 }
@@ -54,7 +55,7 @@ impl Display for BinaryOp {
             LogAnd => "&&",
 
             // Relational op
-            Equals => "==",
+            Equal => "==",
             NotEqual => "!=",
             Less => "<",
             LessOrEqual => "<=",

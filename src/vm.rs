@@ -1,39 +1,47 @@
+use std::fmt;
+
 use num_traits::{ PrimInt, WrappingAdd, WrappingSub, WrappingMul };
 
-#[derive(Clone, Copy)]
+use compiler::{ JumpOffset, LocalId };
+
+#[derive(Clone, Copy, Debug)]
 pub enum Opcode {
     IntegerBinary {
         op: IntegerBinaryOp,
         ty: PrimitiveType,
     },
-    LoadConst(u32),
-    LoadLocal(u32),
-    StoreLocal(u32),
+    PushConst(Primitive),
+    LoadLocal(LocalId),
+    StoreLocal(LocalId),
     Pop,
+    Dup,
+    BranchTrue(JumpOffset),
+    BranchFalse(JumpOffset),
+    Jump(JumpOffset),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum IntegerBinaryOp {
-    // Compare op
-    Eq,
-    NEq,
-    Lt,
-    LtEq,
-    Gt,
-    GtEq,
+    // Comparison
+    Equal,
+    NotEqual,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
 
-    // Add op
+    // Arithmetic
     Add,
     Sub,
-    Or,
-    Xor,
-
-    // Mul op
     Mul,
     Div,
-    Rem,
-    Shl,
-    Shr,
+    Remainder,
+
+    // Bitwise
+    Or,
+    Xor,
+    LShift,
+    RShift,
     And,
     AndNot,
 }
@@ -44,21 +52,21 @@ impl IntegerBinaryOp {
     {
         use self::IntegerBinaryOp::*;
         match self {
-            Eq   => T::from((a == b) as u8).unwrap(),
-            NEq  => T::from((a != b) as u8).unwrap(),
-            Lt   => T::from((a <  b) as u8).unwrap(),
-            LtEq => T::from((a <= b) as u8).unwrap(),
-            Gt   => T::from((a >  b) as u8).unwrap(),
-            GtEq => T::from((a >= b) as u8).unwrap(),
+            Equal => T::from((a == b) as u8).unwrap(),
+            NotEqual => T::from((a != b) as u8).unwrap(),
+            Less => T::from((a <  b) as u8).unwrap(),
+            LessOrEqual => T::from((a <= b) as u8).unwrap(),
+            Greater => T::from((a >  b) as u8).unwrap(),
+            GreaterOrEqual => T::from((a >= b) as u8).unwrap(),
             Add => a.wrapping_add(&b),
             Sub => a.wrapping_sub(&b),
             Or  => a | b,
             Xor => a ^ b,
             Mul => a.wrapping_mul(&b),
             Div => a.checked_div(&b).expect("Divide by zero unhandled"),
-            Rem => a % b,
-            Shl => a << b.to_usize().unwrap(),
-            Shr => a >> b.to_usize().unwrap(),
+            Remainder => a % b,
+            LShift => a << b.to_usize().unwrap(),
+            RShift => a >> b.to_usize().unwrap(),
             And => a & b,
             AndNot => a & !b,
         }
@@ -107,6 +115,14 @@ pub union Primitive {
     pub i16: i16,
     pub i32: i32,
     pub i64: i64,
+}
+
+impl fmt::Debug for Primitive {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("Primitive")
+            .field(unsafe { &self.u64 })
+            .finish()
+    }
 }
 
 impl Primitive {

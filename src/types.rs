@@ -71,6 +71,15 @@ impl TypeId {
         }
     }
 
+    pub fn as_primitive_type(self, env: &Environment) -> PrimitiveType {
+        match *env.get_type(self) {
+            Type::Primitive { primitive, .. } => primitive,
+            Type::Alias { origin, .. } => origin.as_primitive_type(env),
+            Type::DistinctAlias { origin, .. } => origin.as_primitive_type(env),
+            Type::Untyped { ty, .. } => ty.as_type_id().as_primitive_type(env),
+        }
+    }
+
     pub fn resolve_aliases(self, env: &Environment) -> TypeId {
         if let Type::Alias { origin, .. } = *env.get_type(self) {
             origin.resolve_aliases(env)

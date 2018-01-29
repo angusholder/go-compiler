@@ -98,6 +98,14 @@ impl<K: Id, V> IdVec<K, V> {
         self.list.push(value);
         key
     }
+
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    pub fn into_vec(self) -> Vec<V> {
+        self.list
+    }
 }
 
 impl<K: Id, V> Index<K> for IdVec<K, V> {
