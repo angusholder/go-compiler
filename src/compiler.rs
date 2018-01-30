@@ -129,7 +129,7 @@ impl Compiler {
 
 pub struct Function {
     pub code: IdVec<CodeOffset, Opcode>,
-    pub locals_count: u32,
+    pub local_names: IdVec<LocalId, Atom>,
 }
 
 pub struct FunctionCompiler<'env, 'func> {
@@ -137,7 +137,7 @@ pub struct FunctionCompiler<'env, 'func> {
     decl: &'func ast::FunctionDecl,
 
     code: IdVec<CodeOffset, Opcode>,
-    locals_count: u32,
+    local_names: IdVec<LocalId, Atom>,
     expr_to_type: IdVecMap<ExprId, TypeId>,
 }
 
@@ -146,7 +146,7 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         FunctionCompiler {
             env, decl,
             code: IdVec::new(),
-            locals_count: 0,
+            local_names: IdVec::new(),
             expr_to_type: IdVecMap::new(),
         }
     }
@@ -163,13 +163,12 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
 
         Ok(Function {
             code: self.code,
-            locals_count: self.locals_count,
+            local_names: self.local_names,
         })
     }
 
     fn declare_local(&mut self, name: Atom, ty: TypeId, span: Span) -> LocalId {
-        let id = LocalId(self.locals_count);
-        self.locals_count += 1;
+        let id = self.local_names.append(name);
         self.env.insert_decl(name, Declaration {
             kind: DeclarationKind::Var(VarDecl { ty, id }),
             span,
