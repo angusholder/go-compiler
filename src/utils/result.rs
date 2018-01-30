@@ -113,7 +113,6 @@ impl<'rng, 'src> SourceRangeFormatter<'rng, 'src> {
         } else {
             self.src.len()
         };
-        println!("input = {:?}, output = {:?}", span, Span::new(start, end));
         &self.src[start..end]
     }
 }

@@ -37,7 +37,7 @@ func main() {
     c := 1
 
     root1 := (0-b) + (b*b - 4*a*c) / (2*a)
-//    root2 := (0-b) - (b*b - 4*a*c) / (2*a)
+    root2 := (0-b) - (b*b - 4*a*c) / (2*a)
 }
 "#;
     let res = parser::parse(src).and_then(|source_file| {
@@ -46,9 +46,12 @@ func main() {
 
     match res {
         Ok(func) => {
-            for opcode in func.code.into_vec() {
+            for (offset, &opcode) in func.code.iter() {
                 println!("{:#?}", opcode);
             }
+            let mut vm = vm::VirtualMachine::new(func);
+            vm.execute();
+            vm.display_locals();
         }
         Err(e) => {
             println!("{}", e.fmt(src));

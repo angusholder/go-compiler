@@ -161,6 +161,8 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             self.compile_stmt(stmt)?;
         }
 
+        self.code.append(Opcode::Return);
+
         Ok(Function {
             code: self.code,
             local_names: self.local_names,
@@ -199,7 +201,7 @@ impl CodeOffset {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct JumpOffset(u32);
+pub struct JumpOffset(pub u32);
 
 impl JumpOffset {
     const INVALID: JumpOffset = JumpOffset(0xDEADBEEF);
@@ -355,8 +357,15 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             Simple(ref simple) => {
                 self.compile_simple_stmt(simple, Span::INVALID)
             }
+            Declaration(ref decl) => {
+                self.compile_decl(decl)
+            }
             _ => unimplemented!()
         }
+    }
+
+    fn compile_decl(&mut self, decl: &ast::Declaration) -> CompileResult<()> {
+        unimplemented!()
     }
 
     fn compile_if_stmt(&mut self, stmt: &ast::IfStmt) -> CompileResult<()> {

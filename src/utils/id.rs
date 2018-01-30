@@ -4,6 +4,8 @@ use std::marker::PhantomData;
 
 use fnv::FnvHashMap;
 use vec_map::VecMap;
+use std::slice::Iter;
+use std::iter::Enumerate;
 
 pub trait Id: Copy + Eq + Hash {
     fn as_usize(self) -> usize;
@@ -84,7 +86,18 @@ impl<K: Id, V> IdVec<K, V> {
             _unused: PhantomData,
         }
     }
+}
 
+impl<K: Id, V: Default + Clone> IdVec<K, V> {
+    pub fn with_len(len: usize) -> IdVec<K, V> {
+        IdVec {
+            list: vec![V::default(); len],
+            _unused: PhantomData,
+        }
+    }
+}
+
+impl<K: Id, V> IdVec<K, V> {
     pub fn get(&self, key: K) -> Option<&V> {
         self.list.get(key.as_usize())
     }
@@ -105,6 +118,26 @@ impl<K: Id, V> IdVec<K, V> {
 
     pub fn into_vec(self) -> Vec<V> {
         self.list
+    }
+
+    pub fn iter(&self) -> IdVecIter<K, V> {
+        IdVecIter {
+            iter: self.list.iter().enumerate(),
+            _unused: PhantomData,
+        }
+    }
+}
+
+pub struct IdVecIter<'a, K, V: 'a> {
+    iter: Enumerate<Iter<'a, V>>,
+    _unused: PhantomData<K>,
+}
+
+impl<'a, K: Id, V: 'a> Iterator for IdVecIter<'a, K, V> {
+    type Item = (K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|(i, v)| (K::from_usize(i), v))
     }
 }
 

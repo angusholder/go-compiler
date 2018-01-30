@@ -3,6 +3,9 @@ use std::fmt;
 use num_traits::{ PrimInt, WrappingAdd, WrappingSub, WrappingMul };
 
 use compiler::{ JumpOffset, LocalId };
+use compiler::Function;
+use compiler::CodeOffset;
+use utils::id::{ IdVec, Id };
 
 #[derive(Clone, Copy, Debug)]
 pub enum Opcode {
@@ -18,6 +21,7 @@ pub enum Opcode {
     BranchTrue(JumpOffset),
     BranchFalse(JumpOffset),
     Jump(JumpOffset),
+    Return,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -117,6 +121,14 @@ pub union Primitive {
     pub i64: i64,
 }
 
+impl Default for Primitive {
+    fn default() -> Primitive {
+        unsafe {
+            Primitive { u64: 0 }
+        }
+    }
+}
+
 impl fmt::Debug for Primitive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_tuple("Primitive")
@@ -207,6 +219,85 @@ fn integer_unary_execute(a: Primitive, op: IntegerUnaryOp, ty: PrimitiveType) ->
             I16 => Primitive { i16: op.execute(a.i16) },
             I32 => Primitive { i32: op.execute(a.i32) },
             I64 => Primitive { i64: op.execute(a.i64) },
+        }
+    }
+}
+
+pub struct VirtualMachine {
+    func: Function,
+    stack: Vec<Primitive>,
+    locals: IdVec<LocalId, Primitive>,
+    pc: CodeOffset,
+}
+
+impl VirtualMachine {
+    pub fn new(func: Function) -> VirtualMachine {
+        let locals_count = func.local_names.len();
+        VirtualMachine {
+            func,
+            stack: Vec::new(),
+            locals: IdVec::with_len(locals_count),
+            pc: CodeOffset::from_usize(0),
+        }
+    }
+
+    pub fn display_locals(&self) {
+        for (id, name) in self.func.local_names.iter() {
+            println!("{} = {}", name, unsafe { self.locals[id].i64 });
+        }
+    }
+
+    pub fn execute(&mut self) {
+        loop {
+            let opcode = self.func.code[self.pc];
+            match opcode {
+                Opcode::IntegerBinary { op, ty } => {
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
+                    let res = integer_binary_execute(a, b, op, ty);
+                    self.stack.push(res);
+                }
+                Opcode::StoreLocal(id) => {
+                    let a= self.stack.pop().unwrap();
+                    self.locals[id] = a;
+                }
+                Opcode::LoadLocal(id) => {
+                    let a = self.locals[id];
+                    self.stack.push(a);
+                }
+                Opcode::PushConst(a) => {
+                    self.stack.push(a);
+                }
+                Opcode::Pop => {
+                    self.stack.pop().unwrap();
+                }
+                Opcode::Dup => {
+                    let a = *self.stack.last().unwrap();
+                    self.stack.push(a);
+                }
+                Opcode::Jump(diff) => {
+                    self.pc = self.pc.offset_by(diff);
+                }
+                Opcode::BranchFalse(diff) => {
+                    let a = self.stack.pop().unwrap();
+                    if unsafe { a.u64 == 0 } {
+                        self.pc = self.pc.offset_by(diff);
+                        continue;
+                    }
+                }
+                Opcode::BranchTrue(diff) => {
+                    let a = self.stack.pop().unwrap();
+                    if unsafe { a.u64 != 0 } {
+                        self.pc = self.pc.offset_by(diff);
+                        continue;
+                    }
+                }
+                Opcode::Return => {
+                    break;
+                }
+            }
+
+            self.pc = self.pc.offset_by(JumpOffset(1));
         }
     }
 }

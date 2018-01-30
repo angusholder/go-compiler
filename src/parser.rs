@@ -952,6 +952,7 @@ impl<'src> Parser<'src> {
         let token = self.bump()?;
         let stmt = match token.kind {
             Keyword(Var) | Keyword(Type) | Keyword(Const) => {
+                self.unbump(token);
                 Stmt::Declaration(self.parse_decl()?)
             }
             Keyword(Go) => {
