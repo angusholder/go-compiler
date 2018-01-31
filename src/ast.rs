@@ -167,7 +167,7 @@ pub type Block = List<Stmt>;
 pub enum IfStmtTail {
     None,
     ElseIf(P<IfStmt>),
-    Block(Block),
+    Else(Block),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -883,18 +883,40 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_if_stmt(&mut self) -> CompileResult<IfStmt> {
-        let pre_stmt = self.parse_opt_simple_stmt()?;
+        let mut pre_stmt = self.parse_opt_simple_stmt()?;
+
+        let cond: P<Expr>;
         if pre_stmt.is_some() {
-            self.expect_terminal()?;
+            if self.match_token(TokenKind::Semicolon)? {
+                cond = P(self.parse_expr()?);
+            } else {
+                // Check if we erroneously parsed the condition as the pre-statement
+                if self.token.kind == TokenKind::LBrace {
+                    // Unwrapping because we checked it's Some above
+                    match pre_stmt.take().unwrap() {
+                        SimpleStmt::Expr(expr) => {
+                            cond = expr;
+                        }
+                        other => {
+                            return err!(Span::INVALID, "{:?} used as value", other);
+                        }
+                    }
+                } else {
+                    return err!(self.token.span, "unexpected {:?}, expecting {{ after if clause",
+                                self.token.kind);
+                }
+            }
+        } else {
+            cond = P(self.parse_expr()?);
         }
-        let cond = P(self.parse_expr()?);
+
         let then = self.parse_block()?;
 
         let els = if self.match_keyword(Keyword::Else)? {
             if self.match_keyword(Keyword::If)? {
                 IfStmtTail::ElseIf(P(self.parse_if_stmt()?))
             } else {
-                IfStmtTail::Block(self.parse_block()?)
+                IfStmtTail::Else(self.parse_block()?)
             }
         } else {
             IfStmtTail::None

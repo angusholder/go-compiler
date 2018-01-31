@@ -155,11 +155,9 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         assert!(self.decl.sig.params.is_empty());
         assert!(self.decl.sig.result.is_empty());
 
-        let body: &[ast::Stmt] = self.decl.body.as_ref().unwrap();
+        let block = self.decl.body.as_ref().unwrap();
 
-        for stmt in body.iter() {
-            self.compile_stmt(stmt)?;
-        }
+        self.compile_block(block)?;
 
         self.code.append(Opcode::Return);
 
@@ -345,9 +343,36 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         self.expr_to_type.insert(expr.id, result_type);
         Ok(result_type)
     }
+
+    fn check_type(&mut self, ty: &ast::Type) -> CompileResult<TypeId> {
+        if let ast::Type::TypeName { ident, package: None } = *ty {
+            let decl = self.env.get_decl(ident);
+            match decl.map(|d| &d.kind) {
+                None => {
+                    unimplemented!()
+                }
+                Some(&DeclarationKind::Type(id)) => Ok(id),
+                Some(&DeclarationKind::Const { .. }) => {
+                    unimplemented!()
+                }
+                Some(&DeclarationKind::Var(_)) => {
+                    unimplemented!()
+                }
+            }
+        } else {
+            unimplemented!()
+        }
+    }
 }
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
+    fn compile_block(&mut self, block: &ast::Block) -> CompileResult<()> {
+        for stmt in block.iter() {
+            self.compile_stmt(stmt)?;
+        }
+        Ok(())
+    }
+
     fn compile_stmt(&mut self, stmt: &ast::Stmt) -> CompileResult<()> {
         use self::ast::Stmt::*;
         match *stmt {
@@ -357,15 +382,8 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             Simple(ref simple) => {
                 self.compile_simple_stmt(simple, Span::INVALID)
             }
-            Declaration(ref decl) => {
-                self.compile_decl(decl)
-            }
             _ => unimplemented!()
         }
-    }
-
-    fn compile_decl(&mut self, decl: &ast::Declaration) -> CompileResult<()> {
-        unimplemented!()
     }
 
     fn compile_if_stmt(&mut self, stmt: &ast::IfStmt) -> CompileResult<()> {
@@ -374,8 +392,38 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             self.compile_simple_stmt(pre, Span::INVALID)?;
         }
 
+        let cond_ty = self.check_expr(&stmt.cond)?;
+        if cond_ty.underlying_type(&self.env) != types::BOOL {
+            return err!(Span::INVALID, "non-bool {:?} (type {}) used as if condition",
+                        stmt.cond, cond_ty.name(&self.env));
+        }
+
+        self.compile_expr(&stmt.cond)?;
+        let branch_over_then = self.emit_branch_false();
+
+        self.compile_block(&stmt.then)?;
+
+        match stmt.els {
+            ast::IfStmtTail::Else(ref block) => {
+                let jump_over_else = self.emit_jump();
+                self.patch_jump_to_here(branch_over_then);
+                self.compile_block(block)?;
+                self.patch_jump_to_here(jump_over_else);
+            }
+            ast::IfStmtTail::None => {
+                self.patch_jump_to_here(branch_over_then);
+            }
+            ast::IfStmtTail::ElseIf(ref else_if) => {
+                let jump_over_elseif = self.emit_jump();
+                self.patch_jump_to_here(branch_over_then);
+                self.compile_if_stmt(else_if)?;
+                self.patch_jump_to_here(jump_over_elseif);
+            }
+        }
+
         self.env.pop_scope();
-        unimplemented!()
+
+        Ok(())
     }
 
     fn compile_simple_stmt(&mut self, stmt: &ast::SimpleStmt, span: Span) -> CompileResult<()> {
