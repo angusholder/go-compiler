@@ -251,51 +251,68 @@ impl VirtualMachine {
         }
     }
 
+    fn pop2(&mut self) -> (Primitive, Primitive) {
+        let b = self.stack.pop().unwrap();
+        let a = self.stack.pop().unwrap();
+        (a, b)
+    }
+
+    fn pop(&mut self) -> Primitive {
+        self.stack.pop().unwrap()
+    }
+
+    fn push(&mut self, a: Primitive) {
+        self.stack.push(a);
+    }
+
+    fn top(&self) -> Primitive {
+        *self.stack.last().unwrap()
+    }
+
     pub fn execute(&mut self) {
         loop {
             let opcode = self.func.code[self.pc];
             match opcode {
                 Opcode::IntegerBinary { op, ty } => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let (a, b) = self.pop2();
                     let res = integer_binary_execute(a, b, op, ty);
-                    self.stack.push(res);
+                    self.push(res);
                 }
                 Opcode::IntegerUnary { op, ty } => {
-                    let a = self.stack.pop().unwrap();
+                    let a = self.pop();
                     let res = integer_unary_execute(a, op, ty);
-                    self.stack.push(res);
+                    self.push(res);
                 }
                 Opcode::StoreLocal(id) => {
-                    let a= self.stack.pop().unwrap();
+                    let a= self.pop();
                     self.locals[id] = a;
                 }
                 Opcode::LoadLocal(id) => {
                     let a = self.locals[id];
-                    self.stack.push(a);
+                    self.push(a);
                 }
                 Opcode::PushConst(a) => {
-                    self.stack.push(a);
+                    self.push(a);
                 }
                 Opcode::Pop => {
-                    self.stack.pop().unwrap();
+                    self.pop();
                 }
                 Opcode::Dup => {
-                    let a = *self.stack.last().unwrap();
-                    self.stack.push(a);
+                    let a = self.top();
+                    self.push(a);
                 }
                 Opcode::Jump(diff) => {
                     self.pc = self.pc.offset_by(diff);
                 }
                 Opcode::BranchFalse(diff) => {
-                    let a = self.stack.pop().unwrap();
+                    let a = self.pop();
                     if unsafe { a.u64 == 0 } {
                         self.pc = self.pc.offset_by(diff);
                         continue;
                     }
                 }
                 Opcode::BranchTrue(diff) => {
-                    let a = self.stack.pop().unwrap();
+                    let a = self.pop();
                     if unsafe { a.u64 != 0 } {
                         self.pc = self.pc.offset_by(diff);
                         continue;
