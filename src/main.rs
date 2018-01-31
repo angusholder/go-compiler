@@ -36,8 +36,8 @@ func main() {
     b := 7
     c := 1
 
-    root1 := (0-b) + (b*b - 4*a*c) / (2*a)
-    root2 := (0-b) - (b*b - 4*a*c) / (2*a)
+    root1 := -b + (b*b - 4*a*c) / (2*a)
+    root2 := -b - (b*b - 4*a*c) / (2*a)
 }
 "#;
     let res = parser::parse(src).and_then(|source_file| {

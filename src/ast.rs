@@ -17,6 +17,21 @@ pub enum UnaryOp {
     Receive, // <-
 }
 
+impl Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::UnaryOp::*;
+        f.write_str(match *self {
+            Plus => "+",
+            Minus => "-",
+            LogNot => "!",
+            Not => "^",
+            Deref => "*",
+            AddrOf => "&",
+            Receive => "<-",
+        })
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BinaryOp {
     // Logical
@@ -120,7 +135,7 @@ impl HasSpan for Expr {
 pub enum ExprKind {
     Literal(Literal),
     Unary {
-        child: P<Expr>,
+        expr: P<Expr>,
         op: UnaryOp,
     },
     Binary {

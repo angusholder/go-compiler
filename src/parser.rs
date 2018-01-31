@@ -554,7 +554,7 @@ fn null_paren(p: &mut Parser, _token: Token, bp: i32) -> CompileResult<Expr> {
 }
 
 fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr> {
-    let child = P(p.parse_expr_until(bp)?);
+    let expr = P(p.parse_expr_until(bp)?);
     let op = match token.kind {
         TokenKind::Plus => UnaryOp::Plus,
         TokenKind::Minus => UnaryOp::Minus,
@@ -566,8 +566,8 @@ fn null_prefix_op(p: &mut Parser, token: Token, bp: i32) -> CompileResult<Expr> 
         _ => unreachable!(),
     };
 
-    let span = Span::between(token.span, child.span);
-    Ok(p.make_expr(ExprKind::Unary { op, child }, span))
+    let span = Span::between(token.span, expr.span);
+    Ok(p.make_expr(ExprKind::Unary { op, expr }, span))
 }
 
 fn left_index(p: &mut Parser, token: Token, left: Expr, _rbp: i32) -> CompileResult<Expr> {

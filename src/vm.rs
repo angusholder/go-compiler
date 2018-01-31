@@ -13,6 +13,10 @@ pub enum Opcode {
         op: IntegerBinaryOp,
         ty: PrimitiveType,
     },
+    IntegerUnary {
+        op: IntegerUnaryOp,
+        ty: PrimitiveType,
+    },
     PushConst(Primitive),
     LoadLocal(LocalId),
     StoreLocal(LocalId),
@@ -77,8 +81,8 @@ impl IntegerBinaryOp {
     }
 }
 
-#[derive(Clone, Copy)]
-enum IntegerUnaryOp {
+#[derive(Clone, Copy, Debug)]
+pub enum IntegerUnaryOp {
     Minus,   // -
     LogNot,  // !
     Not,     // ^
@@ -255,6 +259,11 @@ impl VirtualMachine {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     let res = integer_binary_execute(a, b, op, ty);
+                    self.stack.push(res);
+                }
+                Opcode::IntegerUnary { op, ty } => {
+                    let a = self.stack.pop().unwrap();
+                    let res = integer_unary_execute(a, op, ty);
                     self.stack.push(res);
                 }
                 Opcode::StoreLocal(id) => {

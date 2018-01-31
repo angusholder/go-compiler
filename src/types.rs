@@ -115,6 +115,11 @@ impl TypeId {
         }
     }
 
+    pub fn is_number(self, env: &Environment) -> bool {
+        // TODO: Accept floats and complex numbers
+        self.is_integer(env)
+    }
+
     pub fn is_boolean(self, env: &Environment) -> bool {
         self.underlying_type(env) == BOOL
     }

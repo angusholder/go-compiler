@@ -308,6 +308,37 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         }
     }
 
+    fn check_unary_op_expr(&mut self,
+                           op: ast::UnaryOp,
+                           expr_ty: TypeId,
+                           span: Span) -> CompileResult<TypeId> {
+        use ast::UnaryOp;
+        match op {
+            UnaryOp::LogNot => {
+                if !expr_ty.is_boolean(&self.env) {
+                    return err!(span, "{} operator expects boolean operand, got {}",
+                                    op, expr_ty.name(&self.env));
+                }
+                Ok(expr_ty)
+            }
+            UnaryOp::Not => {
+                if !expr_ty.is_integer(&self.env) {
+                    return err!(span, "{} operator expects integer operand, got {}",
+                                    op, expr_ty.name(&self.env));
+                }
+                Ok(expr_ty)
+            }
+            UnaryOp::Plus | UnaryOp::Minus => {
+                if !expr_ty.is_number(&self.env) {
+                    return err!(span, "{} operator expects number operand, got {}",
+                                    op, expr_ty.name(&self.env));
+                }
+                Ok(expr_ty)
+            }
+            _ => unimplemented!()
+        }
+    }
+
     pub fn check_expr(&mut self, expr: &ast::Expr) -> CompileResult<TypeId> {
         use self::ast::ExprKind::*;
 
@@ -321,6 +352,10 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
                 let right_ty = self.check_expr(right)?;
 
                 self.check_binary_op_expr(op, left_ty, right_ty, expr.span)?
+            }
+            Unary { op, ref expr } => {
+                let expr_ty = self.check_expr(expr)?;
+                self.check_unary_op_expr(op, expr_ty, expr.span)?
             }
             Literal(ast::Literal::Int(_)) => {
                 types::UNTYPED_INT
@@ -559,6 +594,21 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
 
                 let ty = ty.as_primitive_type(&self.env);
                 self.emit(Opcode::IntegerBinary { op, ty });
+            }
+            Unary { ref expr, op } => {
+                self.compile_expr(expr)?;
+
+                use ast::UnaryOp;
+                use vm::IntegerUnaryOp;
+                let op = match op {
+                    UnaryOp::Minus => IntegerUnaryOp::Minus,
+                    UnaryOp::LogNot => IntegerUnaryOp::LogNot,
+                    UnaryOp::Not => IntegerUnaryOp::Not,
+                    _ => unimplemented!(),
+                };
+
+                let ty = ty.as_primitive_type(&self.env);
+                self.emit(Opcode::IntegerUnary { op, ty });
             }
             _ => unimplemented!()
         }
