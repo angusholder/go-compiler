@@ -41,7 +41,6 @@ impl TypeId {
     pub fn name(self, env: &Environment) -> Atom {
         match *env.get_type(self) {
             Type::Primitive { name, .. } => name,
-            Type::Alias { origin, .. } => origin.name(env),
             Type::DistinctAlias { name, .. } => name,
             Type::Untyped { name, .. } => name,
         }
@@ -65,31 +64,36 @@ impl TypeId {
     pub fn underlying_type(self, env: &Environment) -> TypeId {
         match *env.get_type(self) {
             Type::Primitive { .. } => self,
-            Type::Alias { origin, .. } => origin.underlying_type(env),
-            Type::DistinctAlias { origin, .. } => origin.underlying_type(env),
+            Type::DistinctAlias { .. } => self,
             Type::Untyped { ty, .. } => ty.as_type_id(),
+        }
+    }
+
+    // untyped int -> int = true
+    // untyped int -> int8 = true if not truncated
+    // untyped int -> MyInt = true if not truncated
+    pub fn assignable_to(self, target: TypeId, env: &Environment) -> bool {
+        match *env.get_type(self) {
+            Type::Untyped{ ty, .. } => {
+                match ty {
+                    UntypedConstant::Bool => target.is_boolean(env),
+                    // TODO: Handle integer truncation
+                    UntypedConstant::Int => target.is_integer(env),
+                    UntypedConstant::Rune => unimplemented!(),
+                }
+            }
+            Type::Primitive { .. } | Type::DistinctAlias { .. } => {
+                self == target
+            }
         }
     }
 
     pub fn as_primitive_type(self, env: &Environment) -> PrimitiveType {
         match *env.get_type(self) {
             Type::Primitive { primitive, .. } => primitive,
-            Type::Alias { origin, .. } => origin.as_primitive_type(env),
-            Type::DistinctAlias { origin, .. } => origin.as_primitive_type(env),
+            Type::DistinctAlias { primitive, .. } => primitive,
             Type::Untyped { ty, .. } => ty.as_type_id().as_primitive_type(env),
         }
-    }
-
-    pub fn resolve_aliases(self, env: &Environment) -> TypeId {
-        if let Type::Alias { origin, .. } = *env.get_type(self) {
-            origin.resolve_aliases(env)
-        } else {
-            self
-        }
-    }
-
-    pub fn equal_identity(self, other: TypeId, env: &Environment) -> bool {
-        self.resolve_aliases(env) == other.resolve_aliases(env)
     }
 
     pub fn is_integer(self, env: &Environment) -> bool {
@@ -131,11 +135,8 @@ pub enum Type {
         primitive: PrimitiveType,
         name: Atom,
     },
-    Alias {
-        origin: TypeId,
-    },
     DistinctAlias {
-        origin: TypeId,
+        primitive: PrimitiveType,
         name: Atom,
     },
     Untyped {
