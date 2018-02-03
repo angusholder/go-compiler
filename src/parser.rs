@@ -847,11 +847,16 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_var_spec(&mut self) -> CompileResult<VarSpec> {
+        let start = self.token.span;
         let idents = self.parse_comma_separated_list(Parser::expect_ident)?.into();
         let ty = self.parse_opt_type()?;
         let exprs = if self.match_token(TokenKind::Assign(AssignOp::None))? {
             Some(self.parse_comma_separated_list(Parser::parse_expr)?.into())
         } else {
+            if ty.is_none() {
+                let span = Span::between(start, self.prev_span);
+                return err!(span, "expected type or =, found {:?}", self.token);
+            }
             None
         };
 
