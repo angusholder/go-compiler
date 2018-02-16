@@ -61,8 +61,8 @@ impl Compiler {
     }
 
     fn compile_top_level_initializers(&mut self, source: &ast::SourceFile) -> CompileResult<()> {
-        use self::ast::Declaration::*;
-        use self::ast::TopLevelDecl::*;
+        use ast::Declaration::*;
+        use ast::TopLevelDecl::*;
         for decl in source.decls.iter() {
             match *decl {
                 Declaration(Var(_)) => {
@@ -102,7 +102,7 @@ impl Compiler {
     }
 
     fn compile_top_level_decl(&mut self, decl: &ast::TopLevelDecl) -> CompileResult<()> {
-        use self::ast::TopLevelDecl::*;
+        use ast::TopLevelDecl::*;
         match *decl {
             Declaration(ref decl) => {
                 unimplemented!()
@@ -137,7 +137,8 @@ pub struct FunctionCompiler<'env, 'func> {
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn new(env: &'env mut Environment, decl: &'func ast::FunctionDecl) -> FunctionCompiler<'env, 'func> {
         FunctionCompiler {
-            env, decl,
+            env,
+            decl,
             code: IdVec::new(),
             local_names: IdVec::new(),
             expr_to_type: IdVecMap::new(),
@@ -167,9 +168,11 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
     }
 
     fn declare_const(&mut self, name: Atom, ty: TypeId, val: Primitive, span: Span) {
-        self.env.insert_decl(name, Declaration::Const { ty, val, span } );
+        self.env.insert_decl(name, Declaration::Const { ty, val, span });
     }
+}
 
+impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn compile_decl(&mut self, decl: &ast::Declaration) -> CompileResult<()> {
         unimplemented!()
     }
@@ -178,13 +181,13 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         let idents = &spec.idents[..];
         match (spec.ty.as_ref(), spec.exprs.as_ref()) {
             (Some(ty), Some(exprs)) => {
-                self.compile_var_decl_with_ty_and_exprs(idents, ty, exprs, Span::INVALID)
+                self.compile_var_decl_with_ty_and_exprs(idents, ty, exprs, spec.span)
             }
             (Some(ty), None) => {
-                self.compile_var_decl_with_ty(idents, ty, Span::INVALID)
+                self.compile_var_decl_with_ty(idents, ty, spec.span)
             }
             (None, Some(exprs)) => {
-                self.compile_var_decl_with_exprs(idents, exprs, Span::INVALID)
+                self.compile_var_decl_with_exprs(idents, exprs, spec.span)
             }
             // The parser shouldn't allow this
             (None, None) => unreachable!()
@@ -195,12 +198,15 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
                                 idents: &[Atom],
                                 ty: &ast::Type,
                                 span: Span) -> CompileResult<()> {
+        let ty = self.check_type(ty)?;
         for &name in idents {
             if let Some(decl) = self.env.local_decl(name) {
-                return err!(span, "{} redeclared in this block, previous declaration at {}",
+                return err!(span, "{} redeclared in this block, previous declaration at {:?}",
                             name, decl.span());
             }
+            self.declare_local(name, ty, span);
         }
+        Ok(())
     }
 
     fn compile_var_decl_with_ty_and_exprs(&mut self,
@@ -208,6 +214,7 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
                                           ty: &ast::Type,
                                           exprs: &[ast::Expr],
                                           span: Span) -> CompileResult<()> {
+        self.compile_var_decl_with_ty(idents, ty, span)?;
         unimplemented!()
     }
 
@@ -222,59 +229,72 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
                               idents: &[Atom],
                               exprs: &[ast::Expr],
                               span: Span) -> CompileResult<()> {
-//        if !idents.iter().any(|&name| self.env.get_local_var_decl(name).is_none()) {
-//            return err!(span, "no new variables on left side of :=");
-//        }
-//
-//        self.compile_var_decl_with_exprs(idents, exprs, span)
+        if !idents.iter().any(|&name| self.env.local_decl(name).is_none()) {
+            return err!(span, "no new variables on left side of :=");
+        }
 
-        if idents.len() != 1 || exprs.len() != 1 {
+        // TODO: use `self.compile_var_decl_with_exprs(idents, exprs, span)`
+
+        if idents.len() != exprs.len() {
             unimplemented!();
         }
 
-        let expr = &exprs[0];
-        let name = idents[0];
+        for (&name, expr) in idents.iter().zip(exprs) {
+            if self.env.local_decl(name).is_some() {
+                return err!(span, "no new variable on the left side of :=");
+            }
 
-        if self.env.get_local_var_decl(name).is_some() {
-            return err!(span, "no new variable on the left side of :=");
+            let ty = self.check_expr(expr)?;
+            let id = self.declare_local(name, ty, span);
+
+            self.compile_expr(expr)?;
+            self.emit(Opcode::StoreLocal(id));
         }
 
-        let ty = self.check_expr(expr)?;
-        let id = self.declare_local(name, ty, span);
-
-        self.compile_expr(expr)?;
-        self.emit(Opcode::StoreLocal(id));
+        Ok(())
     }
 
     fn compile_assignment(&mut self, left: &[ast::Expr], right: &[ast::Expr]) -> CompileResult<()> {
-        unimplemented!()
+        if left.len() != right.len() {
+            unimplemented!();
+        }
+
+        for (left_expr, right_expr) in left.iter().zip(right) {
+            let right_ty = self.check_expr(right_expr)?;
+            self.compile_expr(right_expr)?;
+
+            if let ast::ExprKind::Literal(ast::Literal::Ident(name)) = left_expr.kind {
+                let left_ty = self.check_expr(left_expr)?;
+                self.compile_expr(left_expr)?;
+
+                let opcode = match self.env.decl(name) {
+                    Some(&Declaration::Var { id, .. }) => {
+                        if !right_ty.assignable_to(left_ty, &self.env) {
+                            // TODO: Pretty print expression
+                            return err!(right_expr.span,
+                                "cannot use {:?} (of type {}) as type {} in assignment",
+                                right_expr.kind, right_ty.name(&self.env), left_ty.name(&self.env));
+                        }
+                        Opcode::StoreLocal(id)
+                    }
+                    Some(&Declaration::Const { .. }) => {
+                        return err!(left_expr.span, "cannot assign to {}", name);
+                    }
+                    Some(&Declaration::Type { .. }) => {
+                        return err!(left_expr.span, "type {} is not an expression", name);
+                    }
+                    None => {
+                        return err!(left_expr.span, "use of undeclared identifier {}", name);
+                    }
+                };
+                self.emit(opcode);
+            } else {
+                unimplemented!("can only assign to identifier")
+            }
+        }
+        Ok(())
     }
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct CodeOffset(u32);
-impl_id!(CodeOffset);
-
-impl CodeOffset {
-    pub fn offset_to(self, dest: CodeOffset) -> JumpOffset {
-        JumpOffset(dest.0.wrapping_sub(self.0))
-    }
-
-    pub fn offset_by(self, offset: JumpOffset) -> CodeOffset {
-        CodeOffset(self.0.wrapping_add(offset.0))
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct JumpOffset(pub u32);
-
-impl JumpOffset {
-    const INVALID: JumpOffset = JumpOffset(0xDEADBEEF);
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct LocalId(u32);
-impl_id!(LocalId);
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn emit(&mut self, opcode: Opcode) -> CodeOffset {
@@ -321,7 +341,7 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
                             left_ty: TypeId,
                             right_ty: TypeId,
                             span: Span) -> CompileResult<TypeId> {
-        use self::ast::BinaryOp::*;
+        use ast::BinaryOp::*;
         match op {
             LogOr | LogAnd => {
                 if !left_ty.is_boolean(&self.env) || !right_ty.is_boolean(&self.env) {
@@ -406,8 +426,8 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         }
     }
 
-    pub fn check_expr(&mut self, expr: &ast::Expr) -> CompileResult<TypeId> {
-        use self::ast::ExprKind::*;
+    fn check_expr(&mut self, expr: &ast::Expr) -> CompileResult<TypeId> {
+        use ast::ExprKind::*;
 
         if let Some(&ty) = self.expr_to_type.get(expr.id) {
             return Ok(ty);
@@ -446,6 +466,18 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         Ok(result_type)
     }
 
+    /// Type check an expression and assert that it yields exactly one value
+    /// May be used for example on the condition of an if statement
+    fn check_single_expr(&mut self, expr: &ast::Expr) -> CompileResult<TypeId> {
+        unimplemented!()
+    }
+
+    /// Type check an expression that can yield any number of values
+    /// For example: `a, b = f()` or `i, ok = someInterface.(int)`
+    fn check_multi_expr(&mut self, expr: &ast::Expr) -> CompileResult<Vec<TypeId>> {
+        unimplemented!()
+    }
+
     fn check_type(&mut self, ty: &ast::Type) -> CompileResult<TypeId> {
         if let ast::Type::TypeName { ident, package: None } = *ty {
             let decl = self.env.decl(ident);
@@ -476,7 +508,7 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
     }
 
     fn compile_stmt(&mut self, stmt: &ast::Stmt) -> CompileResult<()> {
-        use self::ast::Stmt::*;
+        use ast::Stmt::*;
         match *stmt {
             If(ref if_stmt) => {
                 self.compile_if_stmt(if_stmt)
@@ -529,7 +561,7 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
     }
 
     fn compile_simple_stmt(&mut self, stmt: &ast::SimpleStmt, span: Span) -> CompileResult<()> {
-        use self::ast::SimpleStmt::*;
+        use ast::SimpleStmt::*;
         match *stmt {
             Expr(ref expr) => {
                 self.compile_expr(expr)?;
@@ -538,46 +570,17 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             ShortVarDecl { ref idents, ref exprs } => {
                 self.compile_short_var_decl(idents, exprs, span)?;
             }
-            Assignment { ref left, ref right, op: AssignOp::None } => {
-                if left.len() != 1 { unimplemented!() }
-                if right.len() != 1 { unimplemented!() }
-                let expr = &right[0];
-
-                if let ast::ExprKind::Literal(ast::Literal::Ident(name)) = left[0].kind {
-                    let expr_ty = self.check_expr(expr)?;
-                    self.compile_expr(expr)?;
-
-                    let opcode = match self.env.decl(name) {
-                        Some(&Declaration::Var { ty, id, .. }) => {
-                            if ty != expr_ty {
-                                // TODO: Pretty print expression
-                                return err!(span,
-                                    "cannot use {:?} (of type {}) as type {} in assignment",
-                                    expr.kind, expr_ty.name(&self.env), ty.name(&self.env));
-                            }
-                            Opcode::StoreLocal(id)
-                        }
-                        Some(&Declaration::Const { .. }) => {
-                            return err!(expr.span, "cannot assign to {}", name);
-                        }
-                        Some(&Declaration::Type { .. }) => {
-                            return err!(expr.span, "type {} is not an expression", name);
-                        }
-                        None => {
-                            return err!(expr.span, "use of undeclared identifier {}", name);
-                        }
-                    };
-                    self.emit(opcode);
-                } else {
-                    unimplemented!("can only assign to identifier")
-                }
+            Assignment { ref left, ref right } => {
+                self.compile_assignment(left, right)?;
             }
             _ => unimplemented!()
         }
 
         Ok(())
     }
+}
 
+impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn compile_expr(&mut self, expr: &ast::Expr) -> CompileResult<()> {
         use ast::ExprKind::*;
         let ty = self.check_expr(expr)?;
@@ -667,11 +670,16 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         Ok(())
     }
 
+    /// Compile an expression yielding one or more values, discard all but one
+    fn compile_single_expr_truncate(&mut self, expr: &ast::Expr) -> CompileResult<()> {
+        unimplemented!()
+    }
+
     fn compile_literal(&mut self, literal: &ast::Literal, span: Span) -> CompileResult<()> {
         use ast::Literal::*;
         match *literal {
             Ident(name) => {
-                let opcode = match self.env.decl(name).map(|d| &d.kind) {
+                let opcode = match self.env.decl(name) {
                     None => {
                         return err!(span, "use of undeclared identifier {}", name);
                     }
@@ -706,3 +714,28 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         unimplemented!()
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct CodeOffset(u32);
+impl_id!(CodeOffset);
+
+impl CodeOffset {
+    pub fn offset_to(self, dest: CodeOffset) -> JumpOffset {
+        JumpOffset(dest.0.wrapping_sub(self.0))
+    }
+
+    pub fn offset_by(self, offset: JumpOffset) -> CodeOffset {
+        CodeOffset(self.0.wrapping_add(offset.0))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct JumpOffset(pub u32);
+
+impl JumpOffset {
+    const INVALID: JumpOffset = JumpOffset(0xDEADBEEF);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct LocalId(u32);
+impl_id!(LocalId);

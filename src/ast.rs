@@ -194,27 +194,22 @@ pub struct IfStmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RangeClauseLeft {
-    Exprs(List<Expr>),
-    Idents(List<Atom>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum ForStmtHeader {
     Always,
     Condition(P<Expr>),
     ForClause {
-        init_stmt: Option<SimpleStmt>,
+        init_stmt: Option<P<SimpleStmt>>,
         cond: Option<P<Expr>>,
-        post_stmt: Option<SimpleStmt>,
+        post_stmt: Option<P<SimpleStmt>>,
     },
-    RangeClause(RangeClause),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RangeClause {
-    pub left: RangeClauseLeft,
-    pub right: P<Expr>,
+    RangeClauseAssign {
+        left: List<Expr>,
+        right: P<Expr>,
+    },
+    RangeClauseDeclAssign {
+        left: List<Atom>,
+        right: P<Expr>,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -232,16 +227,20 @@ pub enum SimpleStmt {
     },
     Increment(P<Expr>),
     Decrement(P<Expr>),
+    AssignmentOp {
+        left: P<Expr>,
+        right: P<Expr>,
+        op: AssignOp,
+    },
     Assignment {
         left: List<Expr>,
         right: List<Expr>,
-        op: AssignOp,
     },
     ShortVarDecl {
         idents: List<Atom>,
         exprs: List<Expr>,
     },
-    RangeClause(RangeClause),
+    ForHeader(ForStmtHeader),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -270,6 +269,7 @@ pub struct VarSpec {
     pub idents: List<Atom>,
     pub ty: Option<P<Type>>,
     pub exprs: Option<List<Expr>>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

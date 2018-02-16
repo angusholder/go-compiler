@@ -155,16 +155,6 @@ impl Environment {
         local_scope.decl_from_atom.get(&name)
     }
 
-    pub fn get_local_var_decl(&self, name: Atom) -> Option<&VarDecl> {
-        let local_scope = self.scopes.last().unwrap();
-        let local = local_scope.decl_from_atom.get(&name);
-        if let Some(&Declaration::Var(ref decl)) = local {
-            Some(decl)
-        } else {
-            None
-        }
-    }
-
     pub fn get_type(&self, type_ref: TypeId) -> &Type {
         self.type_registry.lookup(type_ref)
     }

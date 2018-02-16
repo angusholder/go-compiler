@@ -59,7 +59,7 @@ impl<'src> Lexer<'src> {
                 if self.iter.match_char('-') {
                     Decrement
                 } else if self.iter.match_char('=') {
-                    Assign(AssignOp::Sub)
+                    AssignmentOp(AssignOp::Sub)
                 } else {
                     Minus
                 }
@@ -100,14 +100,14 @@ impl<'src> Lexer<'src> {
             '}' => RBrace,
             '*' => {
                 if self.iter.match_char('=') {
-                    Assign(AssignOp::Mul)
+                    AssignmentOp(AssignOp::Mul)
                 } else {
                     Star
                 }
             }
             '/' => {
                 if self.iter.match_char('=') {
-                    Assign(AssignOp::Div)
+                    AssignmentOp(AssignOp::Div)
                 } else {
                     Slash
                 }
@@ -117,26 +117,26 @@ impl<'src> Lexer<'src> {
                     LogAnd
                 } else if self.iter.match_char('^') {
                     if self.iter.match_char('=') {
-                        Assign(AssignOp::AndNot)
+                        AssignmentOp(AssignOp::AndNot)
                     } else {
                         AndNot
                     }
                 } else if self.iter.match_char('=') {
-                    Assign(AssignOp::And)
+                    AssignmentOp(AssignOp::And)
                 } else {
                     And
                 }
             }
             '%' => {
                 if self.iter.match_char('=') {
-                    Assign(AssignOp::Modulo)
+                    AssignmentOp(AssignOp::Remainder)
                 } else {
                     Percent
                 }
             }
             '^' => {
                 if self.iter.match_char('=') {
-                    Assign(AssignOp::Xor)
+                    AssignmentOp(AssignOp::Xor)
                 } else {
                     Caret
                 }
@@ -145,7 +145,7 @@ impl<'src> Lexer<'src> {
                 if self.iter.match_char('+') {
                     Increment
                 } else if self.iter.match_char('=') {
-                    Assign(AssignOp::Add)
+                    AssignmentOp(AssignOp::Add)
                 } else {
                     Plus
                 }
@@ -155,7 +155,7 @@ impl<'src> Lexer<'src> {
                     SendReceive
                 } else if self.iter.match_char('<') {
                     if self.iter.match_char('=') {
-                        Assign(AssignOp::LShift)
+                        AssignmentOp(AssignOp::LShift)
                     } else {
                         LShift
                     }
@@ -169,13 +169,13 @@ impl<'src> Lexer<'src> {
                 if self.iter.match_char('=') {
                     Equals
                 } else {
-                    Assign(AssignOp::None)
+                    Assignment
                 }
             }
             '>' => {
                 if self.iter.match_char('>') {
                     if self.iter.match_char('=') {
-                        Assign(AssignOp::RShift)
+                        AssignmentOp(AssignOp::RShift)
                     } else {
                         RShift
                     }
@@ -187,7 +187,7 @@ impl<'src> Lexer<'src> {
             }
             '|' => {
                 if self.iter.match_char('=') {
-                    Assign(AssignOp::Or)
+                    AssignmentOp(AssignOp::Or)
                 } else if self.iter.match_char('|') {
                     LogOr
                 } else {

@@ -104,9 +104,6 @@ impl FromStr for Keyword {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AssignOp {
-    // Plain assign
-    None,
-
     // Add op
     Add,
     Sub,
@@ -116,7 +113,7 @@ pub enum AssignOp {
     // Mul op
     Mul,
     Div,
-    Modulo,
+    Remainder,
     LShift,
     RShift,
     And,
@@ -127,8 +124,6 @@ impl AssignOp {
     pub fn as_str(&self) -> &'static str {
         use self::AssignOp::*;
         match *self {
-            None => "=",
-
             Add => "+=",
             Sub => "-=",
             Or => "|=",
@@ -136,7 +131,7 @@ impl AssignOp {
 
             Mul => "*=",
             Div => "/=",
-            Modulo => "%=",
+            Remainder => "%=",
             LShift => "<<=",
             RShift => ">>=",
             And => "&=",
@@ -148,7 +143,7 @@ impl AssignOp {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TokenKind {
     Keyword(Keyword),
-    Assign(AssignOp),
+    AssignmentOp(AssignOp),
 
     Minus,          // -
     Decrement,      // --
@@ -179,6 +174,7 @@ pub enum TokenKind {
     SendReceive,    // <-
     LShift,         // <<
     LessOrEqual,    // <=
+    Assignment,     // =
     Equals,         // ==
     Greater,        // >
     GreaterOrEqual, // >=
@@ -222,7 +218,7 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
         use self::TokenKind::*;
         let s: &'static str = match *self.token_kind {
             Keyword(keyword) => keyword.as_str(),
-            Assign(op) => op.as_str(),
+            AssignmentOp(op) => op.as_str(),
 
             Minus => "-",
             Decrement => "--",
@@ -253,6 +249,7 @@ impl<'tok, 'src> Display for TokenKindFormatter<'tok, 'src> {
             SendReceive => "<-",
             LShift => "<<",
             LessOrEqual => "<=",
+            Assignment => "=",
             Equals => "==",
             Greater => ">",
             GreaterOrEqual=> ">=",

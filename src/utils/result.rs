@@ -172,9 +172,13 @@ impl Span {
     }
 
     pub fn between(start: Span, end: Span) -> Span {
-        Span {
-            start: start.start,
-            end: end.end,
+        if start == Span::INVALID || end == Span::INVALID {
+            Span::INVALID
+        } else {
+            Span {
+                start: start.start,
+                end: end.end,
+            }
         }
     }
 
