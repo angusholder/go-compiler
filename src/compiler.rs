@@ -174,7 +174,20 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
     fn compile_decl(&mut self, decl: &ast::Declaration) -> CompileResult<()> {
-        unimplemented!()
+        match *decl {
+            ast::Declaration::Var(ref var_specs) => {
+                for spec in var_specs.iter() {
+                    self.compile_var_spec(spec)?;
+                }
+            }
+            ast::Declaration::Type(ref type_specs) => {
+                unimplemented!()
+            }
+            ast::Declaration::Const(ref const_specs) => {
+                unimplemented!()
+            }
+        }
+        Ok(())
     }
 
     fn compile_var_spec(&mut self, spec: &ast::VarSpec) -> CompileResult<()> {
@@ -329,6 +342,17 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
 
     fn emit_jump(&mut self) -> CodeOffset {
         self.emit(Opcode::Jump(JumpOffset::INVALID))
+    }
+
+    fn emit_jump_to(&mut self, dest: CodeOffset) {
+        let here = self.next_code_offset();
+        let jump_offset = here.offset_to(dest);
+        self.emit(Opcode::Jump(jump_offset));
+    }
+
+    /// The `CodeOffset` that will point to location where the next opcode will be emitted
+    fn next_code_offset(&self) -> CodeOffset {
+        CodeOffset(self.code.len() as u32)
     }
 }
 
@@ -516,8 +540,77 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             Simple(ref simple) => {
                 self.compile_simple_stmt(simple, Span::INVALID)
             }
+            For(ref for_stmt) => {
+                self.compile_for_stmt(for_stmt)
+            }
+            Declaration(ref decl) => {
+                self.compile_decl(decl)
+            }
             _ => unimplemented!()
         }
+    }
+
+    fn compile_for_stmt(&mut self, stmt: &ast::ForStmt) -> CompileResult<()> {
+        use ast::ForStmtHeader::*;
+        match stmt.header {
+            Always => {
+                let loop_top = self.next_code_offset();
+                self.compile_block(&stmt.body)?;
+                self.emit_jump_to(loop_top);
+            }
+            Condition(ref cond_expr) => {
+                self.compile_for_clause(None, Some(cond_expr), None, &stmt.body)?;
+            }
+            ForClause { ref init_stmt, ref cond, ref post_stmt } => {
+                self.compile_for_clause(
+                    init_stmt.as_ref().map(|s| &**s),
+                    cond.as_ref().map(|s| &**s),
+                    post_stmt.as_ref().map(|s| &**s),
+                    &stmt.body)?;
+            }
+            RangeClauseAssign { .. } => {
+                unimplemented!()
+            }
+            RangeClauseDeclAssign { .. } => {
+                unimplemented!()
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_for_clause(&mut self,
+                          init_stmt: Option<&ast::SimpleStmt>,
+                          cond: Option<&ast::Expr>,
+                          post_stmt: Option<&ast::SimpleStmt>,
+                          body: &ast::Block) -> CompileResult<()> {
+        if let Some(init_stmt) = init_stmt {
+            self.compile_simple_stmt(init_stmt, Span::INVALID)?;
+        }
+
+        let header_loc = self.next_code_offset();
+
+        if let Some(cond) = cond {
+            self.compile_expr(cond)?;
+            let branch_over_body = self.emit_branch_false();
+            self.compile_block(body)?;
+
+            if let Some(post_stmt) = post_stmt {
+                self.compile_simple_stmt(post_stmt, Span::INVALID)?;
+            }
+
+            self.emit_jump_to(header_loc);
+            self.patch_jump_to_here(branch_over_body);
+        } else {
+            self.compile_block(body)?;
+
+            if let Some(post_stmt) = post_stmt {
+                self.compile_simple_stmt(post_stmt, Span::INVALID)?;
+            }
+
+            self.emit_jump_to(header_loc);
+        }
+
+        Ok(())
     }
 
     fn compile_if_stmt(&mut self, stmt: &ast::IfStmt) -> CompileResult<()> {
