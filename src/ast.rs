@@ -284,7 +284,7 @@ pub enum Stmt {
     Declaration(Declaration),
     Labeled {
         label: Label,
-        stmt: P<Stmt>,
+        stmt: Option<P<Stmt>>,
     },
     Simple(SimpleStmt),
     Go(P<Expr>),
@@ -298,6 +298,7 @@ pub enum Stmt {
     // TODO: SwitchStmt, SelectStmt
     For(ForStmt),
     Defer(P<Expr>),
+    Empty,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1027,6 +1027,18 @@ impl<'src> Parser<'src> {
                 self.unbump(token);
                 Stmt::Block(self.parse_block()?)
             }
+            TokenKind::Ident(label) if self.match_token(TokenKind::Colon)? => {
+                let stmt: Option<P<Stmt>> = if self.token.kind == TokenKind::RBrace {
+                    None
+                } else {
+                    Some(P(self.parse_stmt()?))
+                };
+                Stmt::Labeled { label, stmt }
+            }
+            TokenKind::Semicolon => {
+                self.unbump(token);
+                Stmt::Empty
+            }
             _ => {
                 self.unbump(token);
                 if let Some(simple) = self.parse_opt_simple_stmt()? {
