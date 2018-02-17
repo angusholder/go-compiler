@@ -197,7 +197,7 @@ impl<'src> Lexer<'src> {
             '"' => {
                 let processed_literal = self.process_string_literal(start_index)?;
 
-                StrLit(Atom::from(processed_literal.as_str()))
+                StrLit(Atom(processed_literal.as_str()))
             }
             _ if is_ident_head(ch) => {
                 while self.iter.match_char_with(is_ident_tail) {
@@ -207,7 +207,7 @@ impl<'src> Lexer<'src> {
                 if let Ok(keyword) = self::Keyword::from_str(ident) {
                     Keyword(keyword)
                 } else {
-                    Ident(Atom::from(ident))
+                    Ident(Atom(ident))
                 }
             }
             _ if is_number_head(ch) => {

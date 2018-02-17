@@ -5,6 +5,7 @@ use vm::Primitive;
 use utils::intern::Atom;
 use types::{ Type, TypeRegistry, TypeId, UntypedConstant };
 use compiler::LocalId;
+use compiler::CodeOffset;
 
 pub enum Declaration {
     Const {
@@ -62,33 +63,38 @@ pub struct Environment {
 impl Environment {
     pub fn new() -> Environment {
         use vm::PrimitiveType::*;
+        use vm::PrimitiveType;
         use types::builtins::*;
         use types::ARCH;
 
         let mut universe_scope = Scope::new();
         let mut type_registry = TypeRegistry::new();
 
+        fn primitive(primitive: PrimitiveType, name: Atom) -> Type {
+            Type::Primitive { primitive, name }
+        }
+
         let builtins: &[(&str, TypeId, Type)] = &[
-            ("uint8",   UINT8,   Type::Primitive { primitive: U8,  name: Atom::from("uint8") }),
-            ("uint16",  UINT16,  Type::Primitive { primitive: U16, name: Atom::from("uint16") }),
-            ("uint32",  UINT32,  Type::Primitive { primitive: U32, name: Atom::from("uint32") }),
-            ("uint64",  UINT64,  Type::Primitive { primitive: U64, name: Atom::from("uint64") }),
-            ("int8",    INT8,    Type::Primitive { primitive: I8,  name: Atom::from("int8") }),
-            ("int16",   INT16,   Type::Primitive { primitive: I16, name: Atom::from("int16") }),
-            ("int32",   INT32,   Type::Primitive { primitive: I32, name: Atom::from("int32") }),
-            ("int64",   INT64,   Type::Primitive { primitive: I64, name: Atom::from("int64") }),
-            ("int",     INT,     Type::Primitive { primitive: ARCH.int, name: Atom::from("int") }),
-            ("uint",    UINT,    Type::Primitive { primitive: ARCH.uint, name: Atom::from("uint") }),
-            ("uintptr", UINTPTR, Type::Primitive { primitive: ARCH.uintptr, name: Atom::from("uintptr") }),
-            ("bool",    BOOL,    Type::Primitive { primitive: U8,  name: Atom::from("bool") }),
-            ("rune",    RUNE,    Type::Primitive { primitive: I32, name: Atom::from("rune") }),
-            ("byte",    BYTE,    Type::Primitive { primitive: U8,  name: Atom::from("byte") }),
+            ("uint8",   UINT8,   primitive(U8, Atom("uint8"))),
+            ("uint16",  UINT16,  primitive(U16, Atom("uint16"))),
+            ("uint32",  UINT32,  primitive(U32, Atom("uint32"))),
+            ("uint64",  UINT64,  primitive(U64, Atom("uint64"))),
+            ("int8",    INT8,    primitive(I8, Atom("int8"))),
+            ("int16",   INT16,   primitive(I16, Atom("int16"))),
+            ("int32",   INT32,   primitive(I32, Atom("int32"))),
+            ("int64",   INT64,   primitive(I64, Atom("int64"))),
+            ("int",     INT,     primitive(ARCH.int, Atom("int"))),
+            ("uint",    UINT,    primitive(ARCH.uint, Atom("uint"))),
+            ("uintptr", UINTPTR, primitive(ARCH.uintptr, Atom("uintptr"))),
+            ("bool",    BOOL,    primitive(U8, Atom("bool"))),
+            ("rune",    RUNE,    primitive(I32, Atom("rune"))),
+            ("byte",    BYTE,    primitive(U8, Atom("byte"))),
         ];
 
         for &(name, ty_ref, ref ty) in builtins {
             type_registry.set(ty_ref, ty.clone());
 
-            universe_scope.decl_from_atom.insert(Atom::from(name), Declaration::Type {
+            universe_scope.decl_from_atom.insert(Atom(name), Declaration::Type {
                 ty: ty_ref,
                 span: Span::INVALID,
             });
@@ -96,21 +102,21 @@ impl Environment {
 
         type_registry.set(UNTYPED_INT, Type::Untyped {
             ty: UntypedConstant::Int,
-            name: Atom::from("untyped int")
+            name: Atom("untyped int")
         });
 
         type_registry.set(UNTYPED_BOOL, Type::Untyped {
             ty: UntypedConstant::Bool,
-            name: Atom::from("untyped bool")
+            name: Atom("untyped bool")
         });
 
-        universe_scope.decl_from_atom.insert(Atom::from("true"), Declaration::Const {
+        universe_scope.decl_from_atom.insert(Atom("true"), Declaration::Const {
             ty: UNTYPED_BOOL,
             val: Primitive { u8: 1 },
             span: Span::INVALID,
         });
 
-        universe_scope.decl_from_atom.insert(Atom::from("false"), Declaration::Const {
+        universe_scope.decl_from_atom.insert(Atom("false"), Declaration::Const {
             ty: UNTYPED_BOOL,
             val: Primitive { u8: 0 },
             span: Span::INVALID,

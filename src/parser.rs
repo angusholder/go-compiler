@@ -1233,7 +1233,7 @@ mod tests {
         }
 
         fn make_type(name: &str) -> P<Type> {
-            P(Type::TypeName { ident: Atom::from(name), package: None })
+            P(Type::TypeName { ident: Atom(name), package: None })
         }
 
 
@@ -1248,17 +1248,17 @@ mod tests {
         expect_unnamed("int, ...string)", &[int.clone()], Some(string.clone()));
 
         expect_named("int,a,b int)", &[
-            (Atom::from("int"), int.clone()),
-            (Atom::from("a"), int.clone()),
-            (Atom::from("b"), int.clone()),
+            (Atom("int"), int.clone()),
+            (Atom("a"), int.clone()),
+            (Atom("b"), int.clone()),
         ], None);
 
         expect_named("a, b int, c, d string, e ...string)", &[
-            (Atom::from("a"), int.clone()),
-            (Atom::from("b"), int.clone()),
-            (Atom::from("c"), string.clone()),
-            (Atom::from("d"), string.clone()),
-        ], Some((Atom::from("e"), string.clone())));
+            (Atom("a"), int.clone()),
+            (Atom("b"), int.clone()),
+            (Atom("c"), string.clone()),
+            (Atom("d"), string.clone()),
+        ], Some((Atom("e"), string.clone())));
 
         expect_error("a int, int)", "mixed named and unnamed parameters");
 

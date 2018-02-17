@@ -38,6 +38,10 @@ pub struct Atom {
     _phantom: PhantomData<*const str>,
 }
 
+pub fn Atom(s: &str) -> Atom {
+    Atom::from(s)
+}
+
 impl Atom {
     pub fn as_str(&self) -> &str {
         with_interner(|interner| {
