@@ -132,6 +132,7 @@ pub struct FunctionCompiler<'env, 'func> {
     code: IdVec<CodeOffset, Opcode>,
     local_names: IdVec<LocalId, Atom>,
     expr_to_type: IdVecMap<ast::ExprId, TypeId>,
+    jump_target_locs: IdVecMap<ast::JumpTargetId, CodeOffset>,
 }
 
 impl<'env, 'func> FunctionCompiler<'env, 'func> {
@@ -142,6 +143,7 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             code: IdVec::new(),
             local_names: IdVec::new(),
             expr_to_type: IdVecMap::new(),
+            jump_target_locs: IdVecMap::new(),
         }
     }
 
@@ -546,6 +548,15 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
             Declaration(ref decl) => {
                 self.compile_decl(decl)
             }
+            Labeled { name, id, ref stmt } => {
+                let offset = self.next_code_offset();
+                self.jump_target_locs[id] = offset;
+                if let Some(stmt) = stmt.as_ref() {
+                    self.compile_stmt(stmt)
+                } else {
+                    Ok(())
+                }
+            }
             _ => unimplemented!()
         }
     }
@@ -555,18 +566,21 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
         match stmt.header {
             Always => {
                 let loop_top = self.next_code_offset();
+                self.jump_target_locs[stmt.continue_target] = loop_top;
+
+                self.env.push_scope();
                 self.compile_block(&stmt.body)?;
+                self.env.pop_scope();
                 self.emit_jump_to(loop_top);
-            }
-            Condition(ref cond_expr) => {
-                self.compile_for_clause(None, Some(cond_expr), None, &stmt.body)?;
+
+                let loop_end = self.next_code_offset();
+                self.jump_target_locs[stmt.break_target] = loop_end;
             }
             ForClause { ref init_stmt, ref cond, ref post_stmt } => {
-                self.compile_for_clause(
-                    init_stmt.as_ref().map(|s| &**s),
-                    cond.as_ref().map(|s| &**s),
-                    post_stmt.as_ref().map(|s| &**s),
-                    &stmt.body)?;
+                self.compile_for_clause(stmt,
+                        init_stmt.as_ref().map(|s| &**s),
+                        cond.as_ref().map(|s| &**s),
+                        post_stmt.as_ref().map(|s| &**s))?;
             }
             RangeClauseAssign { .. } => {
                 unimplemented!()
@@ -579,36 +593,44 @@ impl<'env, 'func> FunctionCompiler<'env, 'func> {
     }
 
     fn compile_for_clause(&mut self,
+                          stmt: &ast::ForStmt,
                           init_stmt: Option<&ast::SimpleStmt>,
                           cond: Option<&ast::Expr>,
-                          post_stmt: Option<&ast::SimpleStmt>,
-                          body: &ast::Block) -> CompileResult<()> {
+                          post_stmt: Option<&ast::SimpleStmt>) -> CompileResult<()> {
+        self.env.push_scope();
+
         if let Some(init_stmt) = init_stmt {
             self.compile_simple_stmt(init_stmt, Span::INVALID)?;
         }
 
-        let header_loc = self.next_code_offset();
+        let loop_start = self.next_code_offset();
+        self.jump_target_locs[stmt.continue_target] = loop_start;
 
         if let Some(cond) = cond {
             self.compile_expr(cond)?;
             let branch_over_body = self.emit_branch_false();
-            self.compile_block(body)?;
+            self.compile_block(&stmt.body)?;
 
             if let Some(post_stmt) = post_stmt {
                 self.compile_simple_stmt(post_stmt, Span::INVALID)?;
             }
 
-            self.emit_jump_to(header_loc);
+            self.emit_jump_to(loop_start);
             self.patch_jump_to_here(branch_over_body);
         } else {
-            self.compile_block(body)?;
+            self.compile_block(&stmt.body)?;
 
             if let Some(post_stmt) = post_stmt {
                 self.compile_simple_stmt(post_stmt, Span::INVALID)?;
             }
 
-            self.emit_jump_to(header_loc);
+            self.emit_jump_to(loop_start);
         }
+
+        let loop_end = self.next_code_offset();
+        self.jump_target_locs[stmt.break_target] = loop_end;
+
+        self.env.pop_scope();
 
         Ok(())
     }

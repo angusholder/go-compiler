@@ -175,7 +175,7 @@ pub enum ExprKind {
     },
 }
 
-pub type Label = Atom;
+pub type LabelName = Atom;
 pub type Block = List<Stmt>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,7 +196,6 @@ pub struct IfStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ForStmtHeader {
     Always,
-    Condition(P<Expr>),
     ForClause {
         init_stmt: Option<P<SimpleStmt>>,
         cond: Option<P<Expr>>,
@@ -216,6 +215,8 @@ pub enum ForStmtHeader {
 pub struct ForStmt {
     pub header: ForStmtHeader,
     pub body: Block,
+    pub continue_target: JumpTargetId,
+    pub break_target: JumpTargetId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -279,19 +280,37 @@ pub enum Declaration {
     Var(List<VarSpec>),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct JumpId(u32);
+impl_id!(JumpId);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct JumpTargetId(u32);
+impl_id!(JumpTargetId);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Declaration(Declaration),
     Labeled {
-        label: Label,
+        name: LabelName,
+        id: JumpTargetId,
         stmt: Option<P<Stmt>>,
     },
     Simple(SimpleStmt),
     Go(P<Expr>),
     Return(List<Expr>),
-    Break(Option<Label>),
-    Continue(Option<Label>),
-    Goto(Label),
+    Break {
+        name: Option<LabelName>,
+        id: JumpId,
+    },
+    Continue {
+        name: Option<LabelName>,
+        id: JumpId,
+    },
+    Goto {
+        name: LabelName,
+        id: JumpId,
+    },
     Fallthrough,
     Block(Block),
     If(IfStmt),

@@ -38,6 +38,7 @@ pub struct Atom {
     _phantom: PhantomData<*const str>,
 }
 
+#[allow(non_snake_case)]
 pub fn Atom(s: &str) -> Atom {
     Atom::from(s)
 }

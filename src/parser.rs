@@ -6,7 +6,7 @@ use lexer::Lexer;
 use token::{ Token, TokenKind, Keyword, AssignOp };
 use utils::ptr::{ List, P };
 use utils::result::{ CompileResult, Span, HasSpan };
-use utils::id::Id;
+use utils::id::{ Id, IdGenerator };
 use utils::intern::Atom;
 
 pub struct Parser<'src> {
@@ -14,7 +14,16 @@ pub struct Parser<'src> {
     token: Token,
     lookahead_stack: VecDeque<Token>,
     prev_span: Span,
-    expr_id: usize,
+
+    /// As below, except that there is also a function context for evaluation of expressions
+    /// assigned to global `var`s and `const`s, so for now it will run for the entire span of a
+    /// source file.
+    expr_id_gen: IdGenerator<ExprId>,
+
+    /// These generators are relevant only within the context of a single function, so they
+    /// are reset each time a new function definition is encountered
+    jump_id_gen: IdGenerator<JumpId>,
+    jump_target_id_gen: IdGenerator<JumpTargetId>,
 }
 
 impl<'src> Parser<'src> {
@@ -27,7 +36,9 @@ impl<'src> Parser<'src> {
                 span: Span::INVALID,
             },
             prev_span: Span::new(0, 0),
-            expr_id: 0,
+            expr_id_gen: IdGenerator::new(),
+            jump_id_gen: IdGenerator::new(),
+            jump_target_id_gen: IdGenerator::new(),
         };
         parser.bump()?;
         Ok(parser)
@@ -148,8 +159,7 @@ impl<'src> Parser<'src> {
     }
 
     fn make_expr(&mut self, kind: ExprKind, span: Span) -> Expr {
-        let id = ExprId::from_usize(self.expr_id);
-        self.expr_id += 1;
+        let id = self.expr_id_gen.next();
         Expr::new(kind, span, id)
     }
 }
@@ -934,11 +944,15 @@ impl<'src> Parser<'src> {
     fn parse_for_stmt(&mut self) -> CompileResult<ForStmt> {
         if self.token.kind == TokenKind::LBrace {
             let header = ForStmtHeader::Always;
+            let continue_target = self.jump_target_id_gen.next();
             let body = self.parse_block()?;
-            return Ok(ForStmt { header, body });
+            let break_target = self.jump_target_id_gen.next();
+            return Ok(ForStmt { header, body, continue_target, break_target });
         };
 
         let simple_stmt = self.parse_opt_simple_stmt_ext(true)?;
+
+        let continue_target = self.jump_target_id_gen.next();
 
         let header: ForStmtHeader;
         if let Some(SimpleStmt::ForHeader(for_header)) = simple_stmt {
@@ -947,7 +961,13 @@ impl<'src> Parser<'src> {
             match self.token.kind {
                 TokenKind::LBrace => {
                     if let Some(SimpleStmt::Expr(expr)) = simple_stmt {
-                        header = ForStmtHeader::Condition(expr);
+                        // Normalize to the representation for a full `for ;; {}` loop to help
+                        // with code reuse
+                        header = ForStmtHeader::ForClause {
+                            init_stmt: None,
+                            cond: Some(expr),
+                            post_stmt: None
+                        };
                     } else {
                         return err!(Span::INVALID, "loop condition must be an expression, got {:#?}", simple_stmt);
                     }
@@ -969,8 +989,9 @@ impl<'src> Parser<'src> {
         }
 
         let body = self.parse_block()?;
+        let break_target = self.jump_target_id_gen.next();
 
-        Ok(ForStmt { header, body })
+        Ok(ForStmt { header, body, continue_target, break_target })
     }
 
     fn parse_stmt(&mut self) -> CompileResult<Stmt> {
@@ -997,13 +1018,22 @@ impl<'src> Parser<'src> {
                 Stmt::Return(params.into())
             }
             Keyword(Break) => {
-                Stmt::Break(self.match_ident()?)
+                Stmt::Break {
+                    name: self.match_ident()?,
+                    id: self.jump_id_gen.next(),
+                }
             }
             Keyword(Continue) => {
-                Stmt::Continue(self.match_ident()?)
+                Stmt::Continue {
+                    name: self.match_ident()?,
+                    id: self.jump_id_gen.next(),
+                }
             }
             Keyword(Goto) => {
-                Stmt::Goto(self.expect_ident()?)
+                Stmt::Goto {
+                    name: self.expect_ident()?,
+                    id: self.jump_id_gen.next(),
+                }
             }
             Keyword(Fallthrough) => {
                 Stmt::Fallthrough
@@ -1027,13 +1057,15 @@ impl<'src> Parser<'src> {
                 self.unbump(token);
                 Stmt::Block(self.parse_block()?)
             }
-            TokenKind::Ident(label) if self.match_token(TokenKind::Colon)? => {
+            TokenKind::Ident(name) if self.token.kind == TokenKind::Colon => {
+                self.bump()?;
                 let stmt: Option<P<Stmt>> = if self.token.kind == TokenKind::RBrace {
                     None
                 } else {
                     Some(P(self.parse_stmt()?))
                 };
-                Stmt::Labeled { label, stmt }
+                let id = self.jump_target_id_gen.next();
+                Stmt::Labeled { name, stmt, id }
             }
             TokenKind::Semicolon => {
                 self.unbump(token);

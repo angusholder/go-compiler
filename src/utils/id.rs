@@ -28,6 +28,32 @@ macro_rules! impl_id {
 
 
 
+pub struct IdGenerator<T: Id> {
+    count: u32,
+    _unused: PhantomData<T>,
+}
+
+impl<T: Id> IdGenerator<T> {
+    pub fn new() -> IdGenerator<T> {
+        IdGenerator {
+            count: 0,
+            _unused: PhantomData,
+        }
+    }
+
+    pub fn next(&mut self) -> T {
+        let result = T::from_usize(self.count as usize);
+        self.count += 1;
+        result
+    }
+
+    pub fn reset(&mut self) {
+        self.count = 0;
+    }
+}
+
+
+
 pub struct IdVecMap<K: Id, V> {
     map: VecMap<V>,
     _unused: PhantomData<K>,
